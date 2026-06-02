@@ -19,6 +19,10 @@ async def _register_webhook():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    from app.api.buffer import _fail_orphaned_bakes
+    recovered = await _fail_orphaned_bakes()
+    if recovered:
+        print(f"Recovered {recovered} orphaned bake job(s) on startup")
     await _register_webhook()
     yield
 

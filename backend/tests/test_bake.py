@@ -135,6 +135,38 @@ class TestBakeMessages:
         all_entries = await Entry.find({"date": date(2026, 4, 22)}).to_list()
         assert len(all_entries) == 1
 
+    @patch("app.services.bake.extract_highlights_for_entries", new_callable=AsyncMock)
+    @patch("app.services.bake._call_claude", new_callable=AsyncMock)
+    async def test_on_progress_reports_each_date_then_highlights(self, mock_claude, mock_highlights, test_user):
+        mock_claude.return_value = "Запис."
+        mock_highlights.return_value = []
+
+        msg1 = RawMessage(
+            user_id=test_user.id, source_type=SourceType.TEXT, content="day1",
+            telegram_message_id=1, classified_date=date(2026, 4, 22),
+            status=MessageStatus.PENDING,
+        )
+        msg2 = RawMessage(
+            user_id=test_user.id, source_type=SourceType.TEXT, content="day2",
+            telegram_message_id=2, classified_date=date(2026, 4, 23),
+            status=MessageStatus.PENDING,
+        )
+        await msg1.insert()
+        await msg2.insert()
+
+        calls = []
+
+        async def record(completed, total, label, phase):
+            calls.append((completed, total, phase))
+
+        await bake_messages(test_user.id, [msg1, msg2], on_progress=record)
+
+        # Two "baking" reports (one per date) + one final "highlights" report
+        baking = [c for c in calls if c[2] == "baking"]
+        assert len(baking) == 2
+        assert all(total == 2 for _, total, _ in baking)
+        assert calls[-1] == (2, 2, "highlights")
+
 
 @pytest.mark.asyncio
 class TestBuildSystemPrompt:

@@ -20,8 +20,14 @@ function isActive(name: string) {
   <nav class="border-b border-sand-200 bg-sand-50">
     <div class="max-w-3xl mx-auto px-3 sm:px-4 flex items-center justify-between h-12 sm:h-14">
       <div class="flex items-center gap-0.5 sm:gap-1">
-        <router-link to="/" class="text-lg font-semibold text-sand-800 mr-4 sm:mr-6 hidden sm:block">
-          AI Щоденник
+        <router-link
+          to="/"
+          class="mr-4 sm:mr-6 hidden sm:inline-flex items-baseline gap-1.5 group select-none"
+          aria-label="my archivarius"
+        >
+          <span class="self-center text-accent text-[0.65rem] leading-none mr-0.5 transition-transform duration-300 group-hover:scale-125">◆</span>
+          <span class="italic text-base text-sand-400 transition-colors group-hover:text-sand-500">my</span>
+          <span class="text-xl text-sand-800 tracking-[0.12em] transition-colors group-hover:text-accent">archivarius</span>
         </router-link>
         <router-link
           to="/"

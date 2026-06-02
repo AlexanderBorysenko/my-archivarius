@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { marked } from 'marked'
 import { getEntryByDate, getEntries, getEntryRaw, updateEntry, deleteEntry } from '../api'
 import { useEvents } from '../composables/useEvents'
+import { injectMacros } from '../utils/macros'
 
 const route = useRoute()
 const router = useRouter()
@@ -187,7 +188,8 @@ const renderedContent = computed(() => {
     return `<h${depth} id="${id}">${text}</h${depth}>`
   }
   const html = marked(entry.value.content, { renderer }) as string
-  return injectMedia(html, entry.value.media || {})
+  const withMedia = injectMedia(html, entry.value.media || {})
+  return injectMacros(withMedia, entry.value.media || {})
 })
 
 useEvents({
@@ -443,5 +445,46 @@ watch(() => route.params.date, (newDate) => {
   color: var(--color-sand-500);
   font-size: 0.875rem;
   margin: 0.75rem 0;
+}
+
+.diary-content :deep(.diary-gallery) { margin: 1rem 0; }
+.diary-content :deep(.diary-gallery__grid) { columns: 3 200px; column-gap: 8px; }
+.diary-content :deep(.diary-gallery__item) {
+  display: block;
+  break-inside: avoid;
+  margin-bottom: 8px;
+}
+.diary-content :deep(.diary-gallery__item img) {
+  width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+  display: block;
+}
+.diary-content :deep(.diary-gallery__caption),
+.diary-content :deep(.diary-figure__caption) {
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--color-sand-500);
+  margin-top: 0.4rem;
+}
+
+.diary-content :deep(.diary-figure) { margin: 0.25rem 0 1rem; }
+.diary-content :deep(.diary-figure img) {
+  width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+  display: block;
+}
+.diary-content :deep(.diary-figure--left) { float: left; margin-right: 1rem; }
+.diary-content :deep(.diary-figure--right) { float: right; margin-left: 1rem; }
+.diary-content :deep(.diary-figure--center) { margin-left: auto; margin-right: auto; }
+.diary-content :deep(.diary-figure--full) { width: 100% !important; }
+
+.diary-content :deep(h2),
+.diary-content :deep(h3) { clear: both; }
+
+@media (max-width: 640px) {
+  .diary-content :deep(.diary-figure) { float: none !important; width: 100% !important; }
+  .diary-content :deep(.diary-gallery__grid) { columns: 2 140px; }
 }
 </style>

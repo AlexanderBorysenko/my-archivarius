@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     # Media
     media_files_path: str = "/app/media_files"
 
+    # Bake
+    bake_stale_seconds: int = 300
+
     # Cookies (set COOKIE_SECURE=false for local http dev)
     cookie_secure: bool = True
 

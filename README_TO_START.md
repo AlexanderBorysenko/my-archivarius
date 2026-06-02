@@ -17,10 +17,10 @@
 
 ## 2. Отримати API ключі
 
-| Ключ | Для чого | Де отримати |
-|------|----------|-------------|
+| Ключ                | Для чого                                  | Де отримати                              |
+| ------------------- | ----------------------------------------- | ---------------------------------------- |
 | `ANTHROPIC_API_KEY` | Claude API (генерація записів, хайлайтів) | https://console.anthropic.com → API Keys |
-| `OPENAI_API_KEY` | Whisper API (транскрибація голосових) | https://platform.openai.com → API Keys |
+| `OPENAI_API_KEY`    | Whisper API (транскрибація голосових)     | https://platform.openai.com → API Keys   |
 
 ## 3. Клонувати та налаштувати
 
@@ -181,13 +181,13 @@ docker compose exec backend python -m pytest tests/ -v
 
 ## Типові проблеми
 
-| Проблема | Рішення |
-|----------|---------|
-| `port already in use` | Змінити порт у `docker-compose.yml` або зупинити конфлікт |
-| Бот не відповідає | Перевірити webhook: `curl .../getWebhookInfo` |
-| Webhook: `Connection timed out` | IP сервера в діапазоні Telegram — налаштувати Cloudflare Tunnel (розділ 6B) |
+| Проблема                               | Рішення                                                                         |
+| -------------------------------------- | ------------------------------------------------------------------------------- |
+| `port already in use`                  | Змінити порт у `docker-compose.yml` або зупинити конфлікт                       |
+| Бот не відповідає                      | Перевірити webhook: `curl .../getWebhookInfo`                                   |
+| Webhook: `Connection timed out`        | IP сервера в діапазоні Telegram — налаштувати Cloudflare Tunnel (розділ 6B)     |
 | Webhook URL змінився після перезапуску | Quick Tunnel дає новий URL — повторити `setWebhook` або перейти на Named Tunnel |
-| Telegram Login не працює | Перевірити домен у BotFather (`/setdomain`) |
-| Помилка транскрибації | Перевірити `OPENAI_API_KEY`, баланс на platform.openai.com |
-| Помилка запікання | Перевірити `ANTHROPIC_API_KEY`, баланс на console.anthropic.com |
-| Біла сторінка | DevTools → Console, подивитись помилку |
+| Telegram Login не працює               | Перевірити домен у BotFather (`/setdomain`)                                     |
+| Помилка транскрибації                  | Перевірити `OPENAI_API_KEY`, баланс на platform.openai.com                      |
+| Помилка запікання                      | Перевірити `ANTHROPIC_API_KEY`, баланс на console.anthropic.com                 |
+| Біла сторінка                          | DevTools → Console, подивитись помилку                                          |

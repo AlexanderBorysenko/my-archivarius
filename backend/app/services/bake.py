@@ -5,7 +5,7 @@ import logging
 import re
 from collections import defaultdict
 from datetime import date, datetime
-from typing import Optional
+from typing import Awaitable, Callable, Optional
 
 import anthropic
 
@@ -15,8 +15,12 @@ from app.models.media_file import MediaFile
 from app.models.entry import Entry
 from app.models.user import User
 from app.services.highlights import extract_highlights_for_entries
+from app.services.macros import process_macros
 
 logger = logging.getLogger(__name__)
+
+ProgressFn = Callable[[int, int, str, str], Awaitable[None]]
+"""Async callback: (completed_steps, total_steps, current_label, phase)."""
 
 CORE_RULES = """Ти — редактор особистого щоденника. Твоє завдання — перетворити сирі повідомлення (нотатки, голосові транскрипції) у зв'язний текст щоденникового запису.
 
@@ -36,7 +40,16 @@ MEDIA_RULES = """Медіа-вкладення:
 - Тобі надано реєстр медіа-файлів із підказками (descriptive). Опис — ЛИШЕ підказка, де доречно розмістити файл; НЕ включай текст опису в запис.
 - Встав КОЖЕН файл як зображення-плейсхолдер у відповідному за змістом місці: `![](attach:SHORTCODE)`.
 - Якщо неможливо визначити доречне місце — додай файл у кінці запису.
-- Не вигадуй файлів, яких немає в реєстрі, і не повторюй той самий SHORTCODE двічі."""
+- Не вигадуй файлів, яких немає в реєстрі, і не повторюй той самий SHORTCODE двічі.
+
+Макроси оформлення (необов'язкові, ЛИШЕ для фото):
+- ГАЛЕРЕЯ для 2+ пов'язаних фото — на окремому рядку:
+  <!-- macro:gallery {"images":["att_x","att_y"],"caption":"короткий підпис"} -->
+- ФОТО З ОБТІКАННЯМ (текст обтікає одне фото збоку) — на окремому рядку перед потрібним абзацом:
+  <!-- macro:figure {"image":"att_x","width":33,"align":"left","caption":"підпис"} -->
+  width ∈ {25,33,50}; align ∈ {left,right}.
+- Підпис (caption) пиши сам, короткий. Кожен SHORTCODE у макросі НЕ дублюй як inline `![](attach:...)`.
+- Відео та поодинокі прості фото залишай як inline `![](attach:SHORTCODE)`."""
 
 
 def build_system_prompt(user_style: str | None, with_media: bool = False) -> str:
@@ -47,26 +60,47 @@ def build_system_prompt(user_style: str | None, with_media: bool = False) -> str
     return prompt
 
 
-async def bake_messages(user_id, messages: list[RawMessage]) -> list[Entry]:
-    """Group messages by date and bake each group into an Entry."""
+async def bake_messages(
+    user_id,
+    messages: list[RawMessage],
+    on_progress: Optional[ProgressFn] = None,
+) -> list[Entry]:
+    """Group messages by date and bake each group into an Entry.
+
+    If `on_progress` is provided, it is awaited before each date is baked
+    (phase="baking") and once before highlight extraction (phase="highlights").
+    """
     user = await User.get(user_id)
     style_prompt = user.bake_style_prompt if user else None
+    media_ctx = {
+        f.shortcode: f.kind.value
+        for f in await MediaFile.find({"user_id": user_id}).to_list()
+    }
 
     by_date: dict[date, list[RawMessage]] = defaultdict(list)
     for msg in messages:
         by_date[msg.classified_date].append(msg)
 
+    sorted_dates = sorted(by_date.keys())
+    total = len(sorted_dates)
+
     entries = []
-    for entry_date in sorted(by_date.keys()):
+    for i, entry_date in enumerate(sorted_dates):
+        if on_progress:
+            await on_progress(i, total, f"запис за {entry_date.strftime('%d.%m.%Y')}", "baking")
+
         date_messages = by_date[entry_date]
         date_messages.sort(key=lambda m: m.created_at or datetime.min)
 
-        entry = await _bake_date(user_id, entry_date, date_messages, style_prompt)
+        entry = await _bake_date(user_id, entry_date, date_messages, style_prompt, media_ctx)
         entries.append(entry)
 
         for msg in date_messages:
             msg.status = MessageStatus.BAKED
             await msg.save()
+
+    if on_progress:
+        await on_progress(total, total, "вилучення хайлайтів", "highlights")
 
     try:
         await extract_highlights_for_entries(entries, user)
@@ -94,8 +128,8 @@ def _format_media_registry(entries: list[tuple[str, str, str]]) -> str:
     return "\n".join(lines)
 
 
-def _ensure_all_shortcodes(content: str, shortcodes: list[str]) -> str:
-    present = set(re.findall(r"attach:([A-Za-z0-9_]+)", content))
+def _ensure_all_shortcodes(content: str, shortcodes: list[str], extra_placed=frozenset()) -> str:
+    present = set(re.findall(r"attach:([A-Za-z0-9_]+)", content)) | set(extra_placed)
     missing = [s for s in shortcodes if s not in present]
     if not missing:
         return content
@@ -108,8 +142,10 @@ async def _bake_date(
     entry_date: date,
     messages: list[RawMessage],
     style_prompt: str | None = None,
+    media_ctx: dict | None = None,
 ) -> Entry:
     """Bake messages for a single date into an Entry."""
+    media_ctx = media_ctx or {}
     narrative = [m for m in messages if m.source_type in (SourceType.TEXT, SourceType.VOICE)]
     media = [m for m in messages if m.source_type == SourceType.MEDIA]
     registry = await _build_media_registry(media)
@@ -122,7 +158,8 @@ async def _bake_date(
         content = await _bake_append(
             existing.content, narrative, entry_date, style_prompt, registry_text, bool(registry)
         )
-        content = _ensure_all_shortcodes(content, shortcodes)
+        content, macro_used = process_macros(content, media_ctx)
+        content = _ensure_all_shortcodes(content, shortcodes, extra_placed=macro_used)
         existing.content = content
         existing.source_messages.extend([msg.id for msg in messages])
         existing.version = (existing.version or 1) + 1
@@ -134,7 +171,8 @@ async def _bake_date(
         content = await _bake_new(
             narrative, entry_date, style_prompt, registry_text, bool(registry)
         )
-        content = _ensure_all_shortcodes(content, shortcodes)
+        content, macro_used = process_macros(content, media_ctx)
+        content = _ensure_all_shortcodes(content, shortcodes, extra_placed=macro_used)
         entry = Entry(
             user_id=user_id,
             date=entry_date,
@@ -178,7 +216,7 @@ async def _bake_append(
         f"Нові повідомлення, які потрібно інтегрувати:\n\n{messages_text}\n"
         f"{media_block}\n"
         f"Доповни існуючий запис новою інформацією. "
-        f"Збережи вже наявний текст і наявні плейсхолдери `![](attach:...)`. "
+        f"Збережи вже наявний текст, наявні плейсхолдери `![](attach:...)` та макроси `<!-- macro:... -->`. "
         f"Не дублюй те, що вже описано. Поверни ПОВНИЙ оновлений текст запису."
     )
     return await _call_claude(user_prompt, style_prompt=style_prompt,

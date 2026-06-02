@@ -11,8 +11,9 @@ from app.models.raw_message import RawMessage
 from app.models.entry import Entry
 from app.models.highlight import Highlight
 from app.models.media_file import MediaFile
+from app.models.bake_job import BakeJob
 
-DOCUMENT_MODELS = [User, AudioJob, RawMessage, Entry, Highlight, MediaFile]
+DOCUMENT_MODELS = [User, AudioJob, RawMessage, Entry, Highlight, MediaFile, BakeJob]
 
 
 @pytest_asyncio.fixture(autouse=True)
