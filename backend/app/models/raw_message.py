@@ -9,6 +9,7 @@ from pydantic import Field
 class SourceType(str, Enum):
     TEXT = "text"
     VOICE = "voice"
+    MEDIA = "media"
 
 
 class MessageStatus(str, Enum):
@@ -21,7 +22,9 @@ class RawMessage(Document):
 
     user_id: PydanticObjectId
     source_type: SourceType
-    content: str
+    content: str = ""
+    media_file_ids: list[PydanticObjectId] = Field(default_factory=list)
+    descriptive: Optional[str] = None
     telegram_message_id: int
     audio_duration: Optional[float] = None
     classified_date: date

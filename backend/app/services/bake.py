@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from collections import defaultdict
 from datetime import date, datetime
 from typing import Optional
@@ -9,7 +10,8 @@ from typing import Optional
 import anthropic
 
 from app.core.config import settings
-from app.models.raw_message import RawMessage, MessageStatus
+from app.models.raw_message import RawMessage, MessageStatus, SourceType
+from app.models.media_file import MediaFile
 from app.models.entry import Entry
 from app.models.user import User
 from app.services.highlights import extract_highlights_for_entries
@@ -30,10 +32,19 @@ DEFAULT_STYLE = """Стиль та оформлення:
 - Структуруй запис за допомогою заголовків Markdown: використовуй `## Назва теми` для кожної тематичної секції. Якщо в секції є підтеми — використовуй `### Підтема`. Кожна секція — окрема тема чи подія дня. Придумай короткий, змістовний заголовок для кожної секції (наприклад: "## Ранкова пробіжка", "## Робочі справи", "## Вечірні роздуми"). НЕ використовуй `---` для розділення тем — тільки заголовки.
 - Стиль — особистий щоденник: від першої особи, природній, не надто формальний."""
 
+MEDIA_RULES = """Медіа-вкладення:
+- Тобі надано реєстр медіа-файлів із підказками (descriptive). Опис — ЛИШЕ підказка, де доречно розмістити файл; НЕ включай текст опису в запис.
+- Встав КОЖЕН файл як зображення-плейсхолдер у відповідному за змістом місці: `![](attach:SHORTCODE)`.
+- Якщо неможливо визначити доречне місце — додай файл у кінці запису.
+- Не вигадуй файлів, яких немає в реєстрі, і не повторюй той самий SHORTCODE двічі."""
 
-def build_system_prompt(user_style: str | None) -> str:
+
+def build_system_prompt(user_style: str | None, with_media: bool = False) -> str:
     style = user_style.strip() if user_style and user_style.strip() else None
-    return f"{CORE_RULES}\n\n{style if style else DEFAULT_STYLE}"
+    prompt = f"{CORE_RULES}\n\n{style if style else DEFAULT_STYLE}"
+    if with_media:
+        prompt = f"{prompt}\n\n{MEDIA_RULES}"
+    return prompt
 
 
 async def bake_messages(user_id, messages: list[RawMessage]) -> list[Entry]:
@@ -65,6 +76,33 @@ async def bake_messages(user_id, messages: list[RawMessage]) -> list[Entry]:
     return entries
 
 
+async def _build_media_registry(media_messages: list[RawMessage]) -> list[tuple[str, str, str]]:
+    """Return (shortcode, kind, descriptive) tuples in chronological order."""
+    entries: list[tuple[str, str, str]] = []
+    for m in sorted(media_messages, key=lambda x: x.created_at or datetime.min):
+        files = await MediaFile.find({"_id": {"$in": m.media_file_ids}}).to_list()
+        desc = m.descriptive or "без опису"
+        for f in files:
+            entries.append((f.shortcode, f.kind.value, desc))
+    return entries
+
+
+def _format_media_registry(entries: list[tuple[str, str, str]]) -> str:
+    lines = ["Медіа-реєстр (descriptive — лише підказка, НЕ включай у текст):"]
+    for shortcode, kind, desc in entries:
+        lines.append(f'- attach:{shortcode} ({kind}) — контекст: "{desc}"')
+    return "\n".join(lines)
+
+
+def _ensure_all_shortcodes(content: str, shortcodes: list[str]) -> str:
+    present = set(re.findall(r"attach:([A-Za-z0-9_]+)", content))
+    missing = [s for s in shortcodes if s not in present]
+    if not missing:
+        return content
+    appendix = "\n\n## Вкладення\n\n" + "\n\n".join(f"![](attach:{s})" for s in missing)
+    return content + appendix
+
+
 async def _bake_date(
     user_id,
     entry_date: date,
@@ -72,10 +110,19 @@ async def _bake_date(
     style_prompt: str | None = None,
 ) -> Entry:
     """Bake messages for a single date into an Entry."""
+    narrative = [m for m in messages if m.source_type in (SourceType.TEXT, SourceType.VOICE)]
+    media = [m for m in messages if m.source_type == SourceType.MEDIA]
+    registry = await _build_media_registry(media)
+    shortcodes = [e[0] for e in registry]
+    registry_text = _format_media_registry(registry) if registry else ""
+
     existing = await Entry.find_one({"user_id": user_id, "date": entry_date})
 
     if existing:
-        content = await _bake_append(existing.content, messages, entry_date, style_prompt)
+        content = await _bake_append(
+            existing.content, narrative, entry_date, style_prompt, registry_text, bool(registry)
+        )
+        content = _ensure_all_shortcodes(content, shortcodes)
         existing.content = content
         existing.source_messages.extend([msg.id for msg in messages])
         existing.version = (existing.version or 1) + 1
@@ -84,7 +131,10 @@ async def _bake_date(
         await existing.save()
         return existing
     else:
-        content = await _bake_new(messages, entry_date, style_prompt)
+        content = await _bake_new(
+            narrative, entry_date, style_prompt, registry_text, bool(registry)
+        )
+        content = _ensure_all_shortcodes(content, shortcodes)
         entry = Entry(
             user_id=user_id,
             date=entry_date,
@@ -96,42 +146,43 @@ async def _bake_date(
         return entry
 
 
-async def _bake_new(messages: list[RawMessage], entry_date: date, style_prompt: str | None = None) -> str:
+async def _bake_new(
+    messages: list[RawMessage], entry_date: date, style_prompt: str | None = None,
+    registry_text: str = "", with_media: bool = False,
+) -> str:
     """Generate a new diary entry from messages."""
     formatted_date = entry_date.strftime("%d %B %Y")
-    messages_text = _format_messages(messages)
-
+    messages_text = _format_messages(messages) if messages else "(немає текстових повідомлень)"
+    media_block = f"\n\n{registry_text}\n" if registry_text else ""
     user_prompt = (
         f"Дата: {formatted_date}\n\n"
-        f"Сирі повідомлення (хронологічно):\n\n"
-        f"{messages_text}\n\n"
+        f"Сирі повідомлення (хронологічно):\n\n{messages_text}\n"
+        f"{media_block}\n"
         f"Створи щоденниковий запис за цю дату."
     )
-
-    return await _call_claude(user_prompt, style_prompt=style_prompt, temperature=0.7, max_tokens=4096)
+    return await _call_claude(user_prompt, style_prompt=style_prompt,
+                              temperature=0.7, max_tokens=4096, with_media=with_media)
 
 
 async def _bake_append(
-    existing_content: str,
-    new_messages: list[RawMessage],
-    entry_date: date,
-    style_prompt: str | None = None,
+    existing_content: str, new_messages: list[RawMessage], entry_date: date,
+    style_prompt: str | None = None, registry_text: str = "", with_media: bool = False,
 ) -> str:
     """Append new messages to an existing diary entry."""
     formatted_date = entry_date.strftime("%d %B %Y")
-    messages_text = _format_messages(new_messages)
-
+    messages_text = _format_messages(new_messages) if new_messages else "(немає нових текстових повідомлень)"
+    media_block = f"\n\n{registry_text}\n" if registry_text else ""
     user_prompt = (
         f"Дата: {formatted_date}\n\n"
         f"Існуючий запис:\n---\n{existing_content}\n---\n\n"
-        f"Нові повідомлення, які потрібно інтегрувати:\n\n"
-        f"{messages_text}\n\n"
+        f"Нові повідомлення, які потрібно інтегрувати:\n\n{messages_text}\n"
+        f"{media_block}\n"
         f"Доповни існуючий запис новою інформацією. "
-        f"Збережи вже наявний текст, лаконічно інтегруй нові дані. "
+        f"Збережи вже наявний текст і наявні плейсхолдери `![](attach:...)`. "
         f"Не дублюй те, що вже описано. Поверни ПОВНИЙ оновлений текст запису."
     )
-
-    return await _call_claude(user_prompt, style_prompt=style_prompt, temperature=0.5, max_tokens=4096)
+    return await _call_claude(user_prompt, style_prompt=style_prompt,
+                              temperature=0.5, max_tokens=4096, with_media=with_media)
 
 
 def _format_messages(messages: list[RawMessage]) -> str:
@@ -150,10 +201,11 @@ async def _call_claude(
     temperature: float = 0.7,
     max_tokens: int = 4096,
     max_retries: int = 3,
+    with_media: bool = False,
 ) -> str:
     """Call Claude API with retry logic."""
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-    system_prompt = build_system_prompt(style_prompt)
+    system_prompt = build_system_prompt(style_prompt, with_media=with_media)
 
     last_error = None
     for attempt in range(max_retries):

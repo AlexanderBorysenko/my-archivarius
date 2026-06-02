@@ -4,6 +4,7 @@ import router from '../router'
 const api = axios.create({
   baseURL: '/api',
   headers: { 'Content-Type': 'application/json' },
+  withCredentials: true,
 })
 
 // Add JWT token to every request
@@ -16,6 +17,7 @@ api.interceptors.request.use((config) => {
 })
 
 function logout() {
+  api.post('/auth/logout').catch(() => {})
   localStorage.removeItem('access_token')
   localStorage.removeItem('refresh_token')
   router.push({ name: 'login' })

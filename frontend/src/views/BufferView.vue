@@ -3,10 +3,19 @@ import { ref, onMounted } from 'vue'
 import { getBuffer, updateMessage, deleteMessage, bake } from '../api'
 import { useEvents } from '../composables/useEvents'
 
+interface MediaFileRef {
+  shortcode: string
+  kind: string
+  status: string
+  has_poster: boolean
+}
+
 interface RawMsg {
   id: string
   source_type: string
   content: string
+  descriptive?: string | null
+  media_files?: MediaFileRef[]
   classified_date: string
   created_at: string
 }
@@ -163,7 +172,7 @@ onMounted(() => loadBuffer(true))
       >
         <div class="flex items-start justify-between">
           <div class="flex items-center gap-2 text-sm text-sand-500 mb-2">
-            <span>{{ msg.source_type === 'voice' ? '🎙️' : '✏️' }}</span>
+            <span>{{ msg.source_type === 'voice' ? '🎙️' : msg.source_type === 'media' ? '📎' : '✏️' }}</span>
             <span>{{ formatTime(msg.created_at) }}</span>
             <span class="px-2 py-0.5 rounded-full bg-sand-100 text-xs">
               {{ formatDate(msg.classified_date) }}
@@ -210,7 +219,33 @@ onMounted(() => loadBuffer(true))
         </div>
 
         <!-- Display mode -->
-        <p v-else class="text-sand-800 text-sm">{{ msg.content }}</p>
+        <template v-else>
+          <div v-if="msg.source_type === 'media'">
+            <div class="flex flex-wrap gap-2 mb-2">
+              <div
+                v-for="f in msg.media_files"
+                :key="f.shortcode"
+                class="w-20 h-20 rounded-lg overflow-hidden bg-sand-100 flex items-center justify-center"
+              >
+                <img
+                  v-if="f.status === 'ready' && f.kind === 'photo'"
+                  :src="`/api/media/${f.shortcode}`"
+                  class="w-full h-full object-cover"
+                />
+                <img
+                  v-else-if="f.has_poster"
+                  :src="`/api/media/${f.shortcode}/poster`"
+                  class="w-full h-full object-cover"
+                />
+                <span v-else class="text-2xl">{{ f.kind === 'photo' ? '🖼️' : '🎬' }}</span>
+              </div>
+            </div>
+            <p class="text-sand-700 text-sm italic">
+              {{ msg.descriptive || 'Без опису' }}
+            </p>
+          </div>
+          <p v-else class="text-sand-800 text-sm">{{ msg.content }}</p>
+        </template>
       </div>
     </div>
   </div>

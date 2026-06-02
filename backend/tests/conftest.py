@@ -10,8 +10,9 @@ from app.models.audio_job import AudioJob
 from app.models.raw_message import RawMessage
 from app.models.entry import Entry
 from app.models.highlight import Highlight
+from app.models.media_file import MediaFile
 
-DOCUMENT_MODELS = [User, AudioJob, RawMessage, Entry, Highlight]
+DOCUMENT_MODELS = [User, AudioJob, RawMessage, Entry, Highlight, MediaFile]
 
 
 @pytest_asyncio.fixture(autouse=True)

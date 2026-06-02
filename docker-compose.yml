@@ -22,6 +22,7 @@ services:
     volumes:
       - ./backend/app:/app/app
       - audio_files:/app/audio_files
+      - media_files:/app/media_files
     depends_on:
       - mongodb
     restart: unless-stopped
@@ -37,3 +38,4 @@ services:
 volumes:
   mongo_data:
   audio_files:
+  media_files:

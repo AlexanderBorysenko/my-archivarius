@@ -10,6 +10,8 @@ from app.services.classification import classify_date
 from app.services.transcription import process_audio_job
 from app.services.bake import bake_messages
 from app.core.events import event_bus
+from app.bot import media_bucket
+from app.models.media_file import MediaKind
 
 
 def register_handlers(dp: Dispatcher):
@@ -17,7 +19,12 @@ def register_handlers(dp: Dispatcher):
     dp.message.register(cmd_bake, Command("bake"))
     dp.message.register(cmd_web, Command("web"))
     dp.message.register(cmd_help, Command("help"))
+    dp.message.register(handle_skip, Command("skip"))
     dp.message.register(handle_voice, F.voice)
+    dp.message.register(handle_photo, F.photo)
+    dp.message.register(handle_video, F.video)
+    dp.message.register(handle_video_note, F.video_note)
+    dp.message.register(handle_unsupported, F.document | F.audio | F.sticker | F.animation)
     dp.message.register(handle_text, F.text)
 
 
@@ -49,6 +56,8 @@ async def cmd_bake(message: types.Message):
     user = await _get_user(message)
     if not user:
         return
+
+    await media_bucket.flush(user.id, "", message.date or datetime.utcnow())
 
     # Check for processing audio
     processing_count = await AudioJob.find(
@@ -146,10 +155,65 @@ async def handle_voice(message: types.Message):
     asyncio.create_task(_process_voice(job, app_settings.telegram_bot_token, message))
 
 
-async def handle_text(message: types.Message):
-    """Handle incoming text message — classify date and add to buffer."""
+async def handle_photo(message: types.Message):
     user = await _get_user(message)
     if not user:
+        return
+    await media_bucket.ingest_media(user, message, MediaKind.PHOTO)
+
+
+async def handle_video(message: types.Message):
+    user = await _get_user(message)
+    if not user:
+        return
+    await media_bucket.ingest_media(user, message, MediaKind.VIDEO)
+
+
+async def handle_video_note(message: types.Message):
+    user = await _get_user(message)
+    if not user:
+        return
+    await media_bucket.ingest_media(user, message, MediaKind.VIDEO_NOTE)
+
+
+async def handle_unsupported(message: types.Message):
+    user = await _get_user(message)
+    if not user:
+        return
+    await message.answer("Цей тип файлу поки не підтримується.")
+
+
+async def handle_skip(message: types.Message):
+    user = await _get_user(message)
+    if not user:
+        return
+    await _flush_and_ack(user, message, "")
+
+
+async def _flush_and_ack(user, message: types.Message, descriptive: str):
+    msg = await media_bucket.flush(user.id, descriptive, message.date or datetime.utcnow())
+    if not msg:
+        await message.answer("Немає вкладень для опису.")
+        return
+    n = len(msg.media_file_ids)
+    if descriptive.strip():
+        await message.answer(f"📎 Опис додано до {n} вкладень.")
+    else:
+        await message.answer(f"📎 Збережено {n} вкладень без опису.")
+
+
+async def handle_text(message: types.Message):
+    """Handle incoming text — descriptive for pending media, or a normal note."""
+    user = await _get_user(message)
+    if not user:
+        return
+
+    if message.text.strip() == "-":
+        await _flush_and_ack(user, message, "")
+        return
+
+    if await media_bucket.has_loose_media(user.id):
+        await _flush_and_ack(user, message, message.text)
         return
 
     # Classify date via Claude API

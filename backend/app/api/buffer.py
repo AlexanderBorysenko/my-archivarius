@@ -6,18 +6,38 @@ import logging
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
-from datetime import date
+from datetime import date, datetime
 from bson import ObjectId
 
-from app.models.raw_message import RawMessage, MessageStatus
+from app.models.raw_message import RawMessage, MessageStatus, SourceType
 from app.models.audio_job import AudioJob, AudioJobStatus
+from app.models.media_file import MediaFile
 from app.services.bake import bake_messages
 from app.api.dependencies import get_current_user_id
+from app.bot import media_bucket
 from app.core.events import event_bus
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/buffer", tags=["Buffer"])
+
+
+async def _serialize_buffer_message(msg: RawMessage) -> dict:
+    data = msg.model_dump(mode="json")
+    if msg.source_type == SourceType.MEDIA:
+        files = await MediaFile.find(
+            {"_id": {"$in": msg.media_file_ids}, "user_id": msg.user_id}
+        ).to_list()
+        data["media_files"] = [
+            {
+                "shortcode": f.shortcode,
+                "kind": f.kind.value,
+                "status": f.status.value,
+                "has_poster": bool(f.poster_key),
+            }
+            for f in files
+        ]
+    return data
 
 
 class UpdateMessageRequest(BaseModel):
@@ -46,8 +66,10 @@ async def get_buffer(
         {"user_id": uid, "status": {"$in": processing_statuses}}
     ).to_list()
 
+    serialized = list(await asyncio.gather(*(_serialize_buffer_message(m) for m in messages)))
+
     return {
-        "messages": [msg.model_dump(mode="json") for msg in messages],
+        "messages": serialized,
         "processing_audio": [job.model_dump(mode="json") for job in processing_audio],
         "can_bake": len(processing_audio) == 0,
     }
@@ -92,6 +114,10 @@ async def delete_message(
 async def bake(user_id: str = Depends(get_current_user_id)):
     """Start baking pending messages — runs in background, notifies via SSE."""
     uid = ObjectId(user_id)
+
+    # Flush any loose Telegram media so a web-triggered bake doesn't silently drop it
+    # (mirrors the Telegram /bake auto-flush).
+    await media_bucket.flush(uid, "", datetime.utcnow())
 
     processing_statuses = [AudioJobStatus.DOWNLOADING, AudioJobStatus.TRANSCRIBING]
     processing_count = await AudioJob.find(

@@ -151,6 +151,29 @@ const tocItems = computed<TocItem[]>(() => {
   return items
 })
 
+function injectMedia(html: string, manifest: Record<string, any>): string {
+  return html.replace(
+    /<img[^>]*src="attach:([A-Za-z0-9_]+)"[^>]*>/g,
+    (_full, code) => {
+      const info = manifest?.[code]
+      const src = `/api/media/${code}`
+      if (!info) return `<span class="diary-media-missing">📎</span>`
+      if (info.status !== 'ready') {
+        const poster = info.has_poster
+          ? `<img src="${src}/poster" class="diary-media" loading="lazy">`
+          : ''
+        return `<div class="diary-media-note">${poster}<span>Медіа недоступне</span></div>`
+      }
+      if (info.kind === 'photo') {
+        return `<img src="${src}" class="diary-media" loading="lazy">`
+      }
+      const posterAttr = info.has_poster ? ` poster="${src}/poster"` : ''
+      const cls = info.kind === 'video_note' ? 'diary-media diary-media--circle' : 'diary-media'
+      return `<video controls class="${cls}"${posterAttr} src="${src}"></video>`
+    }
+  )
+}
+
 const renderedContent = computed(() => {
   if (!entry.value?.content) return ''
   const renderer = new marked.Renderer()
@@ -163,7 +186,8 @@ const renderedContent = computed(() => {
       .replace(/\s+/g, '-')
     return `<h${depth} id="${id}">${text}</h${depth}>`
   }
-  return marked(entry.value.content, { renderer }) as string
+  const html = marked(entry.value.content, { renderer }) as string
+  return injectMedia(html, entry.value.media || {})
 })
 
 useEvents({
@@ -396,5 +420,28 @@ watch(() => route.params.date, (newDate) => {
   border: none;
   border-top: 1px solid var(--color-sand-200);
   margin: 1.25rem 0;
+}
+
+.diary-content :deep(.diary-media) {
+  max-width: 100%;
+  border-radius: 0.75rem;
+  margin: 0.75rem 0;
+  display: block;
+}
+
+.diary-content :deep(.diary-media--circle) {
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.diary-content :deep(.diary-media-note) {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--color-sand-500);
+  font-size: 0.875rem;
+  margin: 0.75rem 0;
 }
 </style>

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { authTelegram } from '../api'
+import { authTelegram, logout as apiLogout } from '../api'
 
 interface UserInfo {
   id: string
@@ -21,6 +21,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function logout() {
+    apiLogout().catch(() => {})
     localStorage.removeItem('access_token')
     localStorage.removeItem('refresh_token')
     user.value = null

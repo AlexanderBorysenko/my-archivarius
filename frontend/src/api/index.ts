@@ -4,6 +4,9 @@ import api from './client'
 export const authTelegram = (data: Record<string, unknown>) =>
   api.post('/auth/telegram', data)
 
+export const logout = () =>
+  api.post('/auth/logout')
+
 // Buffer
 export const getBuffer = (params?: { date_from?: string; date_to?: string }) =>
   api.get('/buffer', { params })

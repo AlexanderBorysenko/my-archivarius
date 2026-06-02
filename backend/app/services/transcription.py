@@ -6,13 +6,13 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-import httpx
 from openai import AsyncOpenAI
 
 from app.core.config import settings
 from app.models.audio_job import AudioJob, AudioJobStatus
 from app.models.raw_message import RawMessage, SourceType, MessageStatus
 from app.services.classification import classify_date
+from app.services.telegram_files import download_telegram_file
 
 logger = logging.getLogger(__name__)
 
@@ -80,38 +80,12 @@ async def process_audio_job(job: AudioJob, bot_token: str) -> None:
 
 
 async def _download_voice(file_id: str, bot_token: str) -> Path:
-    """Download a voice file from Telegram and save locally.
-
-    Returns the local file path.
-    """
+    """Download a voice file from Telegram and save locally."""
     AUDIO_DIR.mkdir(parents=True, exist_ok=True)
-
-    async with httpx.AsyncClient() as client:
-        # Get file info from Telegram
-        resp = await client.get(
-            f"https://api.telegram.org/bot{bot_token}/getFile",
-            params={"file_id": file_id},
-            timeout=30,
-        )
-        resp.raise_for_status()
-        file_info = resp.json()
-
-        if not file_info.get("ok"):
-            raise RuntimeError(f"Telegram getFile failed: {file_info}")
-
-        file_path_tg = file_info["result"]["file_path"]
-
-        # Download the actual file
-        download_url = f"https://api.telegram.org/file/bot{bot_token}/{file_path_tg}"
-        resp = await client.get(download_url, timeout=60)
-        resp.raise_for_status()
-
-    # Save with original extension
-    ext = Path(file_path_tg).suffix or ".ogg"
-    local_path = AUDIO_DIR / f"{file_id}{ext}"
-    local_path.write_bytes(resp.content)
-
-    logger.info("Downloaded voice file: %s (%d bytes)", local_path.name, len(resp.content))
+    data = await download_telegram_file(file_id, bot_token)
+    local_path = AUDIO_DIR / f"{file_id}.ogg"
+    local_path.write_bytes(data)
+    logger.info("Downloaded voice file: %s (%d bytes)", local_path.name, len(data))
     return local_path
 
 

@@ -47,6 +47,7 @@ from app.api.highlights import router as highlights_router
 from app.api.webhook import router as webhook_router
 from app.api.sse import router as sse_router
 from app.api.settings import router as settings_router
+from app.api.media import router as media_router
 
 app.include_router(auth_router)
 app.include_router(buffer_router)
@@ -55,6 +56,7 @@ app.include_router(highlights_router)
 app.include_router(webhook_router)
 app.include_router(sse_router)
 app.include_router(settings_router)
+app.include_router(media_router)
 
 
 @app.get("/api/health")

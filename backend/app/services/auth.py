@@ -36,6 +36,14 @@ def create_refresh_token(user_id: str) -> str:
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
+def create_media_token(user_id: str) -> str:
+    """Token for cookie-based media serving. Session-length so <img> requests
+    don't break when the short access token expires."""
+    expire = datetime.utcnow() + timedelta(days=settings.jwt_refresh_token_expire_days)
+    payload = {"sub": user_id, "exp": expire, "type": "media"}
+    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+
 def decode_token(token: str) -> Optional[dict]:
     """Decode and validate a JWT token.
 

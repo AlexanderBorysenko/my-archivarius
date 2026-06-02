@@ -14,8 +14,9 @@ async def init_db():
     from app.models.raw_message import RawMessage
     from app.models.entry import Entry
     from app.models.highlight import Highlight
+    from app.models.media_file import MediaFile
 
     await init_beanie(
         database=db,
-        document_models=[User, AudioJob, RawMessage, Entry, Highlight],
+        document_models=[User, AudioJob, RawMessage, Entry, Highlight, MediaFile],
     )

@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     # Audio
     audio_files_path: str = "/app/audio_files"
 
+    # Media
+    media_files_path: str = "/app/media_files"
+
+    # Cookies (set COOKIE_SECURE=false for local http dev)
+    cookie_secure: bool = True
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 
