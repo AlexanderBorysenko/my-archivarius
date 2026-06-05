@@ -11,12 +11,12 @@ from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
 
 from app.models.raw_message import RawMessage, MessageStatus, SourceType
-from app.models.audio_job import AudioJob, AudioJobStatus
 from app.models.media_file import MediaFile
 from app.services.bake import bake_messages
 from app.services.bake_orchestrator import active_bake, serialize_bake_job, launch_bake
 from app.services import media_storage
 from app.services.media_ingest_web import create_web_media
+from app.services.intake import inflight_inbound_count, inflight_voice_events
 from app.api.dependencies import get_current_user_id
 from app.bot import media_bucket
 from app.core.events import event_bus
@@ -85,20 +85,18 @@ async def get_buffer(
 
     messages = await RawMessage.find(query).sort("+created_at").to_list()
 
-    processing_statuses = [AudioJobStatus.PENDING, AudioJobStatus.DOWNLOADING, AudioJobStatus.TRANSCRIBING]
-    processing_audio = await AudioJob.find(
-        {"user_id": uid, "status": {"$in": processing_statuses}}
-    ).to_list()
+    processing_audio = await inflight_voice_events(uid)
 
     serialized = list(await asyncio.gather(*(_serialize_buffer_message(m) for m in messages)))
 
     active = await active_bake(uid)
+    inflight = await inflight_inbound_count(uid)
 
     return {
         "messages": serialized,
-        "processing_audio": [job.model_dump(mode="json") for job in processing_audio],
+        "processing_audio": [ev.model_dump(mode="json") for ev in processing_audio],
         "active_bake": serialize_bake_job(active) if active else None,
-        "can_bake": len(processing_audio) == 0 and active is None and len(messages) > 0,
+        "can_bake": inflight == 0 and active is None and len(messages) > 0,
     }
 
 
@@ -218,14 +216,11 @@ async def bake(user_id: str = Depends(get_current_user_id)):
     # Flush any loose Telegram media so a web-triggered bake doesn't silently drop it.
     await media_bucket.flush(uid, "", datetime.utcnow())
 
-    processing_statuses = [AudioJobStatus.DOWNLOADING, AudioJobStatus.TRANSCRIBING]
-    processing_count = await AudioJob.find(
-        {"user_id": uid, "status": {"$in": processing_statuses}}
-    ).count()
+    processing_count = await inflight_inbound_count(uid)
     if processing_count > 0:
         raise HTTPException(
             status_code=409,
-            detail=f"Є {processing_count} повідомлень в процесі транскрибації. Зачекайте завершення.",
+            detail=f"Є {processing_count} повідомлень в процесі обробки. Зачекайте завершення.",
         )
 
     # Explicit guard (also recovers stale jobs). The partial unique index is

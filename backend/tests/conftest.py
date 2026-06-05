@@ -6,14 +6,14 @@ from beanie import init_beanie
 from mongomock_motor import AsyncMongoMockClient
 
 from app.models.user import User
-from app.models.audio_job import AudioJob
 from app.models.raw_message import RawMessage
 from app.models.entry import Entry
 from app.models.highlight import Highlight
 from app.models.media_file import MediaFile
 from app.models.bake_job import BakeJob
+from app.models.inbound_event import InboundEvent
 
-DOCUMENT_MODELS = [User, AudioJob, RawMessage, Entry, Highlight, MediaFile, BakeJob]
+DOCUMENT_MODELS = [User, RawMessage, Entry, Highlight, MediaFile, BakeJob, InboundEvent]
 
 
 @pytest_asyncio.fixture(autouse=True)

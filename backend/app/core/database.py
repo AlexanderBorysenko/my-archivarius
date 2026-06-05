@@ -10,14 +10,14 @@ async def init_db():
     db = client[settings.mongodb_db_name]
 
     from app.models.user import User
-    from app.models.audio_job import AudioJob
     from app.models.raw_message import RawMessage
     from app.models.entry import Entry
     from app.models.highlight import Highlight
     from app.models.media_file import MediaFile
     from app.models.bake_job import BakeJob
+    from app.models.inbound_event import InboundEvent
 
     await init_beanie(
         database=db,
-        document_models=[User, AudioJob, RawMessage, Entry, Highlight, MediaFile, BakeJob],
+        document_models=[User, RawMessage, Entry, Highlight, MediaFile, BakeJob, InboundEvent],
     )

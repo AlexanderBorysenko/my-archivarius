@@ -5,7 +5,6 @@ from datetime import date, datetime
 
 from app.models.user import User, CustomCategory
 from app.models.raw_message import RawMessage, SourceType, MessageStatus
-from app.models.audio_job import AudioJob, AudioJobStatus
 from app.models.entry import Entry
 from app.models.highlight import Highlight
 
@@ -73,41 +72,6 @@ class TestRawMessageModel:
 
 
 @pytest.mark.asyncio
-class TestAudioJobModel:
-    async def test_status_transitions(self, test_user):
-        job = AudioJob(
-            user_id=test_user.id,
-            telegram_message_id=1,
-            file_id="file_abc",
-            duration=15,
-            status=AudioJobStatus.PENDING,
-        )
-        await job.insert()
-
-        job.status = AudioJobStatus.DOWNLOADING
-        await job.save()
-
-        found = await AudioJob.get(job.id)
-        assert found.status == AudioJobStatus.DOWNLOADING
-
-    async def test_filter_processing_jobs(self, test_user):
-        for status in [AudioJobStatus.PENDING, AudioJobStatus.DOWNLOADING, AudioJobStatus.COMPLETED]:
-            job = AudioJob(
-                user_id=test_user.id,
-                telegram_message_id=1,
-                file_id=f"file_{status.value}",
-                duration=10,
-                status=status,
-            )
-            await job.insert()
-
-        processing = await AudioJob.find(
-            {"status": {"$in": [AudioJobStatus.DOWNLOADING, AudioJobStatus.TRANSCRIBING]}}
-        ).to_list()
-        assert len(processing) == 1
-
-
-@pytest.mark.asyncio
 class TestEntryModel:
     async def test_create_entry(self, test_user):
         entry = Entry(
@@ -159,3 +123,32 @@ class TestHighlightModel:
         found = await Highlight.get(h.id)
         assert found.title == "Важлива ідея"
         assert found.category == "idea"
+
+
+@pytest.mark.asyncio
+class TestRawMessageEventId:
+    async def test_event_id_defaults_none_and_persists(self, test_user):
+        rm = RawMessage(
+            user_id=test_user.id,
+            source_type=SourceType.VOICE,
+            content="hi",
+            telegram_message_id=1,
+            classified_date=date.today(),
+            status=MessageStatus.PENDING,
+        )
+        await rm.insert()
+        assert rm.event_id is None
+
+        rm2 = RawMessage(
+            user_id=test_user.id,
+            source_type=SourceType.VOICE,
+            content="hi",
+            telegram_message_id=2,
+            classified_date=date.today(),
+            status=MessageStatus.PENDING,
+            event_id="evt-xyz",
+        )
+        await rm2.insert()
+        fetched = await RawMessage.find_one({"event_id": "evt-xyz"})
+        assert fetched is not None
+        assert fetched.id == rm2.id

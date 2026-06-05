@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     # Bake
     bake_stale_seconds: int = 300
 
+    # Inbound worker queue
+    worker_concurrency: int = 4
+    worker_max_attempts: int = 3
+    worker_poll_seconds: float = 5.0
+    worker_lease_stale_seconds: int = 300
+
     # Cookies (set COOKIE_SECURE=false for local http dev)
     cookie_secure: bool = True
 

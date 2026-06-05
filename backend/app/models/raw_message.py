@@ -26,6 +26,7 @@ class RawMessage(Document):
     media_file_ids: list[PydanticObjectId] = Field(default_factory=list)
     descriptive: Optional[str] = None
     telegram_message_id: int
+    event_id: Optional[str] = None
     audio_duration: Optional[float] = None
     classified_date: date
     status: MessageStatus = MessageStatus.PENDING

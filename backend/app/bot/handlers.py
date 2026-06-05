@@ -1,14 +1,13 @@
-from datetime import date, datetime
+from datetime import datetime
 
 from aiogram import Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 
 from app.models.user import User
-from app.models.raw_message import RawMessage, SourceType, MessageStatus
-from app.models.audio_job import AudioJob, AudioJobStatus
-from app.services.classification import classify_date
-from app.services.transcription import process_audio_job
+from app.models.raw_message import RawMessage, MessageStatus
+from app.models.inbound_event import InboundKind, Initiator
 from app.services.bake import bake_messages
+from app.services.intake import register_inbound_event, inflight_inbound_count
 from app.core.events import event_bus
 from app.bot import media_bucket
 from app.models.media_file import MediaKind
@@ -59,17 +58,11 @@ async def cmd_bake(message: types.Message):
 
     await media_bucket.flush(user.id, "", message.date or datetime.utcnow())
 
-    # Check for processing audio
-    processing_count = await AudioJob.find(
-        {
-            "user_id": user.id,
-            "status": {"$in": [AudioJobStatus.DOWNLOADING, AudioJobStatus.TRANSCRIBING]},
-        }
-    ).count()
-
+    # Don't bake while messages are still being ingested/processed by the worker.
+    processing_count = await inflight_inbound_count(user.id)
     if processing_count > 0:
         await message.answer(
-            f"⏳ Є {processing_count} повідомлень в процесі транскрибації. "
+            f"⏳ Є {processing_count} повідомлень в процесі обробки. "
             "Зачекай завершення і спробуй знову."
         )
         return
@@ -129,49 +122,76 @@ async def cmd_help(message: types.Message):
     )
 
 
-async def handle_voice(message: types.Message):
-    """Handle incoming voice message — create audio job for async processing."""
+async def handle_voice(message: types.Message, inbound_update_id: int):
+    """Handle incoming voice — dedup, enqueue a durable job. The worker downloads + transcribes."""
     user = await _get_user(message)
     if not user:
         return
 
     voice = message.voice
-    job = AudioJob(
+    event = await register_inbound_event(
+        channel="telegram",
+        external_id=inbound_update_id,
         user_id=user.id,
-        telegram_message_id=message.message_id,
-        file_id=voice.file_id,
-        duration=voice.duration,
-        status=AudioJobStatus.PENDING,
+        kind=InboundKind.VOICE,
+        initiator=Initiator(
+            channel="telegram",
+            chat_id=message.chat.id,
+            message_id=message.message_id,
+        ),
+        payload={"voice": {"file_id": voice.file_id, "duration": voice.duration}},
     )
-    await job.insert()
-    await event_bus.publish(str(user.id), "buffer:update")
+    if event is None:
+        return  # Telegram redelivery.
 
     await message.answer(f"🎙️ Отримано голосове ({voice.duration}с). Транскрибую...")
+    await event_bus.publish(str(user.id), "buffer:update")
 
-    # Process transcription in background
-    import asyncio
-    from app.core.config import settings as app_settings
-
-    asyncio.create_task(_process_voice(job, app_settings.telegram_bot_token, message))
+    # The worker (single CAS-claimer) owns download + transcription — no second writer races us.
+    from app.services.worker import enqueue_hot
+    enqueue_hot(event.event_id)
 
 
-async def handle_photo(message: types.Message):
+async def _gate_media(message: types.Message, inbound_update_id: int, user) -> bool:
+    """Dedup a media update. Returns True if this is a fresh delivery to process."""
+    event = await register_inbound_event(
+        channel="telegram",
+        external_id=inbound_update_id,
+        user_id=user.id,
+        kind=InboundKind.MEDIA,
+        initiator=Initiator(
+            channel="telegram",
+            chat_id=message.chat.id,
+            message_id=message.message_id,
+        ),
+        payload={"media": {"message_id": message.message_id}},
+    )
+    return event is not None
+
+
+async def handle_photo(message: types.Message, inbound_update_id: int):
     user = await _get_user(message)
     if not user:
+        return
+    if not await _gate_media(message, inbound_update_id, user):
         return
     await media_bucket.ingest_media(user, message, MediaKind.PHOTO)
 
 
-async def handle_video(message: types.Message):
+async def handle_video(message: types.Message, inbound_update_id: int):
     user = await _get_user(message)
     if not user:
+        return
+    if not await _gate_media(message, inbound_update_id, user):
         return
     await media_bucket.ingest_media(user, message, MediaKind.VIDEO)
 
 
-async def handle_video_note(message: types.Message):
+async def handle_video_note(message: types.Message, inbound_update_id: int):
     user = await _get_user(message)
     if not user:
+        return
+    if not await _gate_media(message, inbound_update_id, user):
         return
     await media_bucket.ingest_media(user, message, MediaKind.VIDEO_NOTE)
 
@@ -202,12 +222,14 @@ async def _flush_and_ack(user, message: types.Message, descriptive: str):
         await message.answer(f"📎 Збережено {n} вкладень без опису.")
 
 
-async def handle_text(message: types.Message):
+async def handle_text(message: types.Message, inbound_update_id: int):
     """Handle incoming text — descriptive for pending media, or a normal note."""
     user = await _get_user(message)
     if not user:
         return
 
+    # Descriptive / flush paths are pending-media UI actions, not new buffer notes —
+    # they are naturally idempotent enough and predate the queue; gate only the note path.
     if message.text.strip() == "-":
         await _flush_and_ack(user, message, "")
         return
@@ -216,26 +238,27 @@ async def handle_text(message: types.Message):
         await _flush_and_ack(user, message, message.text)
         return
 
-    # Classify date via Claude API
-    send_dt = message.date or datetime.utcnow()
-    try:
-        classified = await classify_date(message.text, send_dt)
-    except Exception:
-        # Fallback to message date on any unexpected error
-        classified = send_dt.date()
-
-    raw_msg = RawMessage(
+    event = await register_inbound_event(
+        channel="telegram",
+        external_id=inbound_update_id,
         user_id=user.id,
-        source_type=SourceType.TEXT,
-        content=message.text,
-        telegram_message_id=message.message_id,
-        classified_date=classified,
-        status=MessageStatus.PENDING,
+        kind=InboundKind.TEXT,
+        initiator=Initiator(
+            channel="telegram",
+            chat_id=message.chat.id,
+            message_id=message.message_id,
+        ),
+        payload={"text": {"content": message.text}},
     )
-    await raw_msg.insert()
-    await event_bus.publish(str(user.id), "buffer:update")
+    if event is None:
+        return  # Telegram redelivery.
 
+    await event_bus.publish(str(user.id), "buffer:update")
     await message.answer("✅ Записано!")
+
+    # The worker classifies + persists the note (sub-second); same UX as voice.
+    from app.services.worker import enqueue_hot
+    enqueue_hot(event.event_id)
 
 
 async def _get_user(message: types.Message) -> User | None:
@@ -245,15 +268,3 @@ async def _get_user(message: types.Message) -> User | None:
         await message.answer("Спершу набери /start для реєстрації.")
         return None
     return user
-
-
-async def _process_voice(job: AudioJob, bot_token: str, message: types.Message):
-    """Background task: transcribe voice and notify user."""
-    user_id = str(job.user_id)
-    try:
-        await process_audio_job(job, bot_token)
-        await event_bus.publish(user_id, "buffer:update")
-        await message.answer("✅ Голосове транскрибовано та записано!")
-    except Exception as exc:
-        await event_bus.publish(user_id, "buffer:update")
-        await message.answer(f"❌ Помилка транскрибації: {str(exc)[:200]}")

@@ -18,13 +18,35 @@ async def _register_webhook():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import asyncio
     await init_db()
     from app.services.bake_orchestrator import fail_orphaned_bakes
     recovered = await fail_orphaned_bakes()
     if recovered:
         print(f"Recovered {recovered} orphaned bake job(s) on startup")
+
+    from app.services.worker import requeue_stranded_jobs, worker_loop
+    requeued = await requeue_stranded_jobs()
+    if requeued:
+        print(f"Re-queued {requeued} stranded inbound job(s) on startup")
+    worker_task = asyncio.create_task(worker_loop())
+
+    def _log_worker_crash(task: "asyncio.Task") -> None:
+        if not task.cancelled() and task.exception() is not None:
+            import logging
+            logging.getLogger("app.worker").error(
+                "Worker loop crashed", exc_info=task.exception()
+            )
+    worker_task.add_done_callback(_log_worker_crash)
+
     await _register_webhook()
     yield
+
+    worker_task.cancel()
+    try:
+        await worker_task
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(

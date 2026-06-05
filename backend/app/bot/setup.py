@@ -3,10 +3,12 @@ from aiogram.filters import CommandStart, Command
 
 from app.core.config import settings
 from app.bot.handlers import register_handlers
+from app.bot.middlewares import UpdateIdMiddleware
 
 bot = Bot(token=settings.telegram_bot_token) if settings.telegram_bot_token else None
 dp = Dispatcher()
 
+dp.update.outer_middleware(UpdateIdMiddleware())
 register_handlers(dp)
 
 
