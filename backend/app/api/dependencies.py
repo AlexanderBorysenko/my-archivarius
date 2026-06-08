@@ -21,7 +21,7 @@ async def get_current_user_id(
     if not payload or payload.get("type") != "access":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Невалідний або прострочений токен",
+            detail="Invalid or expired token",
         )
     return payload["sub"]
 
@@ -34,7 +34,7 @@ async def get_current_user(
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Користувача не знайдено",
+            detail="User not found",
         )
     return user
 
@@ -56,5 +56,5 @@ async def get_media_user_id(request: Request) -> str:
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Не авторизовано",
+        detail="Not authorized",
     )

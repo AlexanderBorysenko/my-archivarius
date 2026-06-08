@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { useRouter, useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
 
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
+const { t } = useI18n()
 
 function logout() {
   auth.logout()
@@ -34,21 +36,21 @@ function isActive(name: string) {
           class="px-2.5 sm:px-3 py-1.5 rounded-md text-sm"
           :class="isActive('diary') ? 'bg-sand-200 text-sand-900 font-medium' : 'text-sand-600 hover:text-sand-800'"
         >
-          Щоденник
+          {{ t('nav.diary') }}
         </router-link>
         <router-link
           to="/buffer"
           class="px-2.5 sm:px-3 py-1.5 rounded-md text-sm"
           :class="isActive('buffer') ? 'bg-sand-200 text-sand-900 font-medium' : 'text-sand-600 hover:text-sand-800'"
         >
-          Буфер
+          {{ t('nav.buffer') }}
         </router-link>
         <router-link
           to="/highlights"
           class="px-2.5 sm:px-3 py-1.5 rounded-md text-sm"
           :class="isActive('highlights') ? 'bg-sand-200 text-sand-900 font-medium' : 'text-sand-600 hover:text-sand-800'"
         >
-          Хайлайти
+          {{ t('nav.highlights') }}
         </router-link>
         <router-link
           to="/settings"
@@ -62,7 +64,7 @@ function isActive(name: string) {
         @click="logout"
         class="text-sm text-sand-500 hover:text-sand-700"
       >
-        Вийти
+        {{ t('nav.logout') }}
       </button>
     </div>
   </nav>

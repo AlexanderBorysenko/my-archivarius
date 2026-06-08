@@ -51,7 +51,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="AI Diary API",
-    description="Інтелектуальний застосунок для ведення особистого щоденника",
+    description="An intelligent app for keeping a personal diary",
     version="0.1.0",
     lifespan=lifespan,
 )

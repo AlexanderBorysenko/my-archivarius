@@ -2,7 +2,9 @@
 import type { RawMessage } from '../../types/message'
 import { existingThumbSrc } from '../../utils/media'
 import MediaThumb from './MediaThumb.vue'
+import { useI18n } from 'vue-i18n'
 
+const { t } = useI18n()
 defineProps<{ message: RawMessage }>()
 </script>
 
@@ -17,7 +19,7 @@ defineProps<{ message: RawMessage }>()
         <MediaThumb :src="existingThumbSrc(f)" :kind="f.kind" />
       </div>
     </div>
-    <p class="text-sand-700 text-sm italic">{{ message.descriptive || 'Без опису' }}</p>
+    <p class="text-sand-700 text-sm italic">{{ message.descriptive || t('message.noDescription') }}</p>
   </div>
   <p v-else class="text-sand-800 text-sm">{{ message.content }}</p>
 </template>

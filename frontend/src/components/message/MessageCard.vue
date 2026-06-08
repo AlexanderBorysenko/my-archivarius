@@ -5,12 +5,15 @@ import MessageHeader from './MessageHeader.vue'
 import MessageDisplay from './MessageDisplay.vue'
 import MessageTextEditor from './MessageTextEditor.vue'
 import MessageMediaEditor from './MessageMediaEditor.vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps<{ message: RawMessage; disabled: boolean; open: boolean }>()
 const emit = defineEmits<{ open: []; close: []; changed: [] }>()
 
 async function onRemove() {
-  if (!confirm('Видалити повідомлення?')) return
+  if (!confirm(t('message.confirmDelete'))) return
   try {
     await deleteMessage(props.message.id)
     emit('changed')

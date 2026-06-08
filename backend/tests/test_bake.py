@@ -10,6 +10,26 @@ from app.models.user import User
 from app.services.bake import bake_messages, _format_messages, build_system_prompt, CORE_RULES, DEFAULT_STYLE
 
 
+class TestSystemPromptLanguage:
+    def test_core_rules_have_mirror_language_rule(self):
+        lower = CORE_RULES.lower()
+        assert "same language" in lower
+        assert "mix" in lower
+
+    def test_no_fallback_line_when_text_present(self):
+        prompt = build_system_prompt(None)
+        assert "provided no text" not in prompt
+
+    def test_fallback_language_appended_for_media_only(self):
+        prompt = build_system_prompt(None, fallback_lang="ru")
+        assert "Russian" in prompt
+        assert "provided no text" in prompt
+
+    def test_media_rules_included_when_requested(self):
+        prompt = build_system_prompt(None, with_media=True)
+        assert "figure" in prompt and "gallery" in prompt
+
+
 @pytest.mark.asyncio
 class TestFormatMessages:
     async def test_format_text_and_voice(self, test_user):

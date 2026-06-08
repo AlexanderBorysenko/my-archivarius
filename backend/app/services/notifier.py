@@ -9,14 +9,12 @@ import logging
 
 from app.core.events import event_bus
 from app.models.inbound_event import Initiator
+from app.models.user import User
+from app.core.i18n import t, DEFAULT_LANG
 
 logger = logging.getLogger(__name__)
 
-_SUCCESS_TEXT = {
-    "voice": "✅ Голосове транскрибовано та записано!",
-    "text": "✅ Записано!",
-    "media": "✅ Збережено!",
-}
+_OK_KEY = {"voice": "ok_voice", "text": "ok_text", "media": "ok_media"}
 
 
 async def _telegram_send(chat_id: int, text: str) -> None:
@@ -41,9 +39,11 @@ async def notify_outcome(
     await event_bus.publish(user_id, "buffer:update")
 
     if initiator.channel == "telegram" and initiator.chat_id is not None:
+        user = await User.get(user_id)
+        lang = user.language if user else DEFAULT_LANG
         if ok:
-            text = _SUCCESS_TEXT.get(kind, "✅ Готово!")
+            text = t(_OK_KEY.get(kind, "ok_generic"), lang)
         else:
-            text = f"❌ Помилка обробки: {str(error)[:200]}"
+            text = t("err_processing", lang, error=str(error)[:200])
         await _telegram_send(initiator.chat_id, text)
     # web (and any non-telegram channel) gets the SSE publish above and nothing else.

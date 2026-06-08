@@ -10,6 +10,7 @@ from datetime import datetime
 
 from app.core.config import settings
 from app.core.events import event_bus
+from app.core.i18n import DEFAULT_LANG, t
 from app.models.media_file import MediaFile, MediaStatus
 from app.models.raw_message import RawMessage, SourceType, MessageStatus
 from app.services.classification import classify_date
@@ -117,6 +118,6 @@ async def _finalize(user, message, caption) -> None:
     if caption:
         msg = await flush(user.id, caption, message.date or datetime.utcnow())
         n = len(msg.media_file_ids) if msg else 0
-        await message.answer(f"📎 Опис додано до {n} вкладень.")
+        await message.answer(t("media_described", user.language or DEFAULT_LANG, n=n))
     else:
-        await message.answer("📎 Отримав. Надішли текстовий опис або /skip.")
+        await message.answer(t("media_ask_description", user.language or DEFAULT_LANG))

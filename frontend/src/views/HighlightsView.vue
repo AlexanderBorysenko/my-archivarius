@@ -7,6 +7,14 @@ import {
   deleteHighlight,
 } from '../api'
 import { useEvents } from '../composables/useEvents'
+import { useI18n } from 'vue-i18n'
+import { bcp47, type Language } from '../i18n'
+const { t, locale } = useI18n()
+
+const BUILTIN = ['idea', 'story', 'mood', 'insight']
+function catName(name: string) {
+  return BUILTIN.includes(name) ? t(`categories.${name}.label`) : name
+}
 
 const router = useRouter()
 
@@ -76,7 +84,7 @@ function getIcon(category: string) {
 }
 
 function formatDate(iso: string) {
-  return new Date(iso + 'T00:00:00').toLocaleDateString('uk-UA', {
+  return new Date(iso + 'T00:00:00').toLocaleDateString(bcp47(locale.value as Language), {
     day: 'numeric',
     month: 'long',
     year: 'numeric',
@@ -116,12 +124,12 @@ onMounted(async () => {
 <template>
   <div>
     <div class="flex items-center justify-between mb-6">
-      <h1 class="text-xl font-medium text-sand-800">Хайлайти</h1>
+      <h1 class="text-xl font-medium text-sand-800">{{ t('highlights.title') }}</h1>
       <router-link
         to="/settings"
         class="text-sm text-sand-500 hover:text-accent transition-colors"
       >
-        Налаштувати категорії →
+        {{ t('highlights.configureCategories') }}
       </router-link>
     </div>
 
@@ -134,7 +142,7 @@ onMounted(async () => {
           ? 'bg-accent text-sand-50 border-accent'
           : 'text-sand-600 border-sand-200 hover:border-sand-300'"
       >
-        Всі
+        {{ t('highlights.filterAll') }}
       </button>
       <button
         v-for="cat in categories.filter(c => c.enabled)"
@@ -145,7 +153,7 @@ onMounted(async () => {
           ? 'bg-accent text-sand-50 border-accent'
           : 'text-sand-600 border-sand-200 hover:border-sand-300'"
       >
-        {{ cat.icon }} {{ cat.name }}
+        {{ cat.icon }} {{ catName(cat.name) }}
       </button>
     </div>
 
@@ -156,8 +164,8 @@ onMounted(async () => {
 
     <!-- Empty -->
     <div v-else-if="highlights.length === 0" class="text-center py-12">
-      <p class="text-sand-500">Хайлайтів поки немає</p>
-      <p class="text-sand-400 text-sm mt-1">Вони з'являться автоматично після запікання записів</p>
+      <p class="text-sand-500">{{ t('highlights.empty') }}</p>
+      <p class="text-sand-400 text-sm mt-1">{{ t('highlights.emptyHint') }}</p>
     </div>
 
     <!-- Highlights list -->
@@ -173,7 +181,7 @@ onMounted(async () => {
             <div class="flex items-start sm:items-center gap-1.5 sm:gap-2 mb-1 flex-wrap">
               <h3 class="font-medium text-sand-800 text-sm sm:text-base">{{ h.title }}</h3>
               <span class="text-xs px-2 py-0.5 rounded-full bg-sand-100 text-sand-500">
-                {{ h.category }}
+                {{ catName(h.category) }}
               </span>
             </div>
             <p class="text-sm text-sand-600">{{ h.content }}</p>
@@ -183,14 +191,14 @@ onMounted(async () => {
                 @click="goToEntry(h.source_date)"
                 class="text-xs text-sand-400 hover:text-accent transition-colors"
               >
-                з запису від {{ formatDate(h.source_date) }}
+                {{ t('highlights.fromEntry', { date: formatDate(h.source_date) }) }}
               </button>
               <span v-else></span>
               <button
                 @click="removeHighlight(h.id)"
                 class="text-xs text-sand-300 hover:text-red-400 transition-colors"
               >
-                Видалити
+                {{ t('highlights.delete') }}
               </button>
             </div>
           </div>

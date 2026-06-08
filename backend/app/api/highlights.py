@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from app.models.highlight import Highlight
 from app.models.user import User, CustomCategory, CategoryOverride
 from app.api.dependencies import get_current_user_id, get_current_user
+from app.core.i18n import t, DEFAULT_LANG
 
 router = APIRouter(prefix="/api/highlights", tags=["Highlights"])
 
@@ -16,29 +17,29 @@ router = APIRouter(prefix="/api/highlights", tags=["Highlights"])
 SYSTEM_CATEGORIES = [
     {
         "name": "idea",
-        "description": "Креативні думки, плани, задуми",
-        "prompt": "креативні думки, плани, задуми, бізнес-ідеї",
+        "description": "Creative thoughts, plans, intentions",
+        "prompt": "creative thoughts, plans, intentions, business ideas",
         "icon": "💡",
         "is_system": True,
     },
     {
         "name": "story",
-        "description": "Події, подорожі, зустрічі, визначні моменти",
-        "prompt": "визначні події, подорожі, зустрічі, історії варті запам'ятовування",
+        "description": "Events, trips, meetings, notable moments",
+        "prompt": "notable events, trips, meetings, stories worth remembering",
         "icon": "📖",
         "is_system": True,
     },
     {
         "name": "mood",
-        "description": "Емоції, настрій, рефлексія",
-        "prompt": "емоційний стан, рефлексія, психологічні спостереження",
+        "description": "Emotions, mood, reflection",
+        "prompt": "emotional state, reflection, psychological observations",
         "icon": "🧠",
         "is_system": True,
     },
     {
         "name": "insight",
-        "description": "Висновки, усвідомлення, «аха-моменти»",
-        "prompt": "висновки, усвідомлення, «аха-моменти», життєві уроки, зсуви у світогляді, нове розуміння себе або життя",
+        "description": "Conclusions, realizations, 'aha' moments",
+        "prompt": "conclusions, realizations, 'aha' moments, life lessons, shifts in worldview, new understanding of oneself or life",
         "icon": "⚡",
         "is_system": True,
     },
@@ -139,7 +140,7 @@ async def create_category(
     existing_names = [c.name for c in (user.custom_categories or [])]
     system_names = [c["name"] for c in SYSTEM_CATEGORIES]
     if body.name in existing_names or body.name in system_names:
-        raise HTTPException(status_code=400, detail="Категорія з такою назвою вже існує")
+        raise HTTPException(status_code=400, detail=t("category_exists", user.language))
 
     new_cat = CustomCategory(
         name=body.name,
@@ -201,7 +202,7 @@ async def update_category(
 
     custom = next((c for c in (user.custom_categories or []) if c.name == category_name), None)
     if not custom:
-        raise HTTPException(status_code=404, detail="Категорію не знайдено")
+        raise HTTPException(status_code=404, detail=t("category_not_found", user.language))
 
     if body.description is not None:
         custom.description = body.description
@@ -231,11 +232,11 @@ async def delete_category(
     """Delete a custom category. System categories cannot be deleted."""
     system_names = [c["name"] for c in SYSTEM_CATEGORIES]
     if category_name in system_names:
-        raise HTTPException(status_code=400, detail="Системні категорії не можна видаляти")
+        raise HTTPException(status_code=400, detail=t("cannot_delete_system_category", user.language))
 
     custom = next((c for c in (user.custom_categories or []) if c.name == category_name), None)
     if not custom:
-        raise HTTPException(status_code=404, detail="Категорію не знайдено")
+        raise HTTPException(status_code=404, detail=t("category_not_found", user.language))
 
     user.custom_categories = [c for c in user.custom_categories if c.name != category_name]
     await user.save()
@@ -249,7 +250,9 @@ async def get_highlight(
     """Get a specific highlight."""
     highlight = await Highlight.get(highlight_id)
     if not highlight or str(highlight.user_id) != user_id:
-        raise HTTPException(status_code=404, detail="Хайлайт не знайдено")
+        user = await User.get(user_id)
+        lang = user.language if user else DEFAULT_LANG
+        raise HTTPException(status_code=404, detail=t("highlight_not_found", lang))
     return highlight.model_dump(mode="json")
 
 
@@ -261,5 +264,7 @@ async def delete_highlight(
     """Delete a specific highlight."""
     highlight = await Highlight.get(highlight_id)
     if not highlight or str(highlight.user_id) != user_id:
-        raise HTTPException(status_code=404, detail="Хайлайт не знайдено")
+        user = await User.get(user_id)
+        lang = user.language if user else DEFAULT_LANG
+        raise HTTPException(status_code=404, detail=t("highlight_not_found", lang))
     await highlight.delete()

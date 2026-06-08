@@ -12,6 +12,7 @@ from pymongo.errors import DuplicateKeyError
 
 from app.models.raw_message import RawMessage, MessageStatus, SourceType
 from app.models.media_file import MediaFile
+from app.models.user import User
 from app.services.bake import bake_messages
 from app.services.bake_orchestrator import active_bake, serialize_bake_job, launch_bake
 from app.services import media_storage
@@ -20,6 +21,7 @@ from app.services.intake import inflight_inbound_count, inflight_voice_events
 from app.api.dependencies import get_current_user_id
 from app.bot import media_bucket
 from app.core.events import event_bus
+from app.core.i18n import t, DEFAULT_LANG
 
 logger = logging.getLogger(__name__)
 
@@ -55,17 +57,17 @@ class UpdateMediaOrderRequest(BaseModel):
     shortcodes: list[str]
 
 
-async def _get_editable_media_message(message_id: str, user_id: str) -> RawMessage:
+async def _get_editable_media_message(message_id: str, user_id: str, lang: str = DEFAULT_LANG) -> RawMessage:
     """Load a pending MEDIA message the user owns and may edit, or raise."""
     msg = await RawMessage.get(message_id)
     if not msg or str(msg.user_id) != user_id:
-        raise HTTPException(status_code=404, detail="Повідомлення не знайдено")
+        raise HTTPException(status_code=404, detail=t("msg_not_found", lang))
     if await active_bake(ObjectId(user_id)) is not None:
-        raise HTTPException(status_code=409, detail="Не можна змінювати буфер під час запікання")
+        raise HTTPException(status_code=409, detail=t("buffer_locked_baking", lang))
     if msg.status == MessageStatus.BAKED:
-        raise HTTPException(status_code=400, detail="Не можна редагувати вже запечене повідомлення")
+        raise HTTPException(status_code=400, detail=t("cannot_edit_baked", lang))
     if msg.source_type != SourceType.MEDIA:
-        raise HTTPException(status_code=400, detail="Повідомлення не містить медіа")
+        raise HTTPException(status_code=400, detail=t("msg_no_media", lang))
     return msg
 
 
@@ -107,13 +109,15 @@ async def update_message(
     user_id: str = Depends(get_current_user_id),
 ):
     """Edit a message in the buffer."""
+    user = await User.get(user_id)
+    lang = user.language if user else DEFAULT_LANG
     msg = await RawMessage.get(message_id)
     if not msg or str(msg.user_id) != user_id:
-        raise HTTPException(status_code=404, detail="Повідомлення не знайдено")
+        raise HTTPException(status_code=404, detail=t("msg_not_found", lang))
     if await active_bake(ObjectId(user_id)) is not None:
-        raise HTTPException(status_code=409, detail="Не можна змінювати буфер під час запікання")
+        raise HTTPException(status_code=409, detail=t("buffer_locked_baking", lang))
     if msg.status == MessageStatus.BAKED:
-        raise HTTPException(status_code=400, detail="Не можна редагувати вже запечене повідомлення")
+        raise HTTPException(status_code=400, detail=t("cannot_edit_baked", lang))
 
     if body.content is not None:
         msg.content = body.content
@@ -130,11 +134,13 @@ async def delete_message(
     user_id: str = Depends(get_current_user_id),
 ):
     """Delete a message from the buffer."""
+    user = await User.get(user_id)
+    lang = user.language if user else DEFAULT_LANG
     msg = await RawMessage.get(message_id)
     if not msg or str(msg.user_id) != user_id:
-        raise HTTPException(status_code=404, detail="Повідомлення не знайдено")
+        raise HTTPException(status_code=404, detail=t("msg_not_found", lang))
     if await active_bake(ObjectId(user_id)) is not None:
-        raise HTTPException(status_code=409, detail="Не можна змінювати буфер під час запікання")
+        raise HTTPException(status_code=409, detail=t("buffer_locked_baking", lang))
     await msg.delete()
     await event_bus.publish(user_id, "buffer:update")
 
@@ -146,7 +152,9 @@ async def upload_message_media(
     user_id: str = Depends(get_current_user_id),
 ):
     """Upload a new image/video for a media message (not yet ordered into it)."""
-    await _get_editable_media_message(message_id, user_id)
+    user = await User.get(user_id)
+    lang = user.language if user else DEFAULT_LANG
+    await _get_editable_media_message(message_id, user_id, lang)
     data = await file.read()
     mf = await create_web_media(ObjectId(user_id), data, file.content_type, file.filename)
     return {
@@ -167,7 +175,9 @@ async def update_message_media(
 
     Rewrites order, deletes removed media, deletes the message if emptied.
     """
-    msg = await _get_editable_media_message(message_id, user_id)
+    user = await User.get(user_id)
+    lang = user.language if user else DEFAULT_LANG
+    msg = await _get_editable_media_message(message_id, user_id, lang)
     uid = ObjectId(user_id)
 
     # The web UI only ever sends shortcodes already in this message plus
@@ -175,7 +185,7 @@ async def update_message_media(
     # (a crafted request referencing the user's media from another message is
     # possible but out of scope — owner-only data, no security boundary crossed).
     if len(set(body.shortcodes)) != len(body.shortcodes):
-        raise HTTPException(status_code=400, detail="Дубльовані медіафайли")
+        raise HTTPException(status_code=400, detail=t("duplicate_media", lang))
 
     files = await MediaFile.find(
         {"shortcode": {"$in": body.shortcodes}, "user_id": uid}
@@ -183,7 +193,7 @@ async def update_message_media(
     by_code = {f.shortcode: f for f in files}
     missing = [c for c in body.shortcodes if c not in by_code]
     if missing:
-        raise HTTPException(status_code=404, detail=f"Медіафайл не знайдено: {', '.join(missing)}")
+        raise HTTPException(status_code=404, detail=t("media_not_found_list", lang, missing=', '.join(missing)))
 
     new_ids = [by_code[c].id for c in body.shortcodes]
     keep = set(new_ids)
@@ -212,6 +222,8 @@ async def update_message_media(
 async def bake(user_id: str = Depends(get_current_user_id)):
     """Start baking pending messages — runs in background, tracked via BakeJob + SSE."""
     uid = ObjectId(user_id)
+    user = await User.get(user_id)
+    lang = user.language if user else DEFAULT_LANG
 
     # Flush any loose Telegram media so a web-triggered bake doesn't silently drop it.
     await media_bucket.flush(uid, "", datetime.utcnow())
@@ -220,19 +232,19 @@ async def bake(user_id: str = Depends(get_current_user_id)):
     if processing_count > 0:
         raise HTTPException(
             status_code=409,
-            detail=f"Є {processing_count} повідомлень в процесі обробки. Зачекайте завершення.",
+            detail=t("api_processing_wait", lang, count=processing_count),
         )
 
     # Explicit guard (also recovers stale jobs). The partial unique index is
     # the race-proof backstop for truly simultaneous requests.
     if await active_bake(uid) is not None:
-        raise HTTPException(status_code=409, detail="Запікання вже виконується")
+        raise HTTPException(status_code=409, detail=t("baking_in_progress", lang))
 
     pending = await RawMessage.find(
         {"user_id": uid, "status": MessageStatus.PENDING}
     ).sort("+created_at").to_list()
     if not pending:
-        raise HTTPException(status_code=422, detail="Буфер порожній — нічого запікати")
+        raise HTTPException(status_code=422, detail=t("api_buffer_empty", lang))
 
     total_steps = len({m.classified_date for m in pending})
     try:
@@ -241,6 +253,6 @@ async def bake(user_id: str = Depends(get_current_user_id)):
             engine=lambda report: bake_messages(user_id=uid, messages=pending, on_progress=report),
         )
     except DuplicateKeyError:
-        raise HTTPException(status_code=409, detail="Запікання вже виконується")
+        raise HTTPException(status_code=409, detail=t("baking_in_progress", lang))
 
     return serialize_bake_job(job)

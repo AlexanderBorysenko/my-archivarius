@@ -10,32 +10,31 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """Ти — асистент для класифікації повідомлень щоденника. Твоє завдання — визначити, до якої дати належить повідомлення.
+SYSTEM_PROMPT = """You are an assistant that classifies diary messages. Your task is to determine which date a message belongs to.
 
-Правила:
-1. Якщо повідомлення описує події «сьогодні» або не містить часових маркерів — дата = дата відправки.
-2. Якщо є відносні маркери — обчисли дату відносно дати відправки:
-   - «вчора» → дата відправки мінус 1 день
-   - «позавчора» → мінус 2 дні
-   - «N днів тому», «три дні назад», «3 days ago» → мінус N днів
-   - «минулого тижня» → мінус 7 днів (або відповідний день тижня)
-   - «минулого місяця» → мінус ~30 днів
-   - Аналогічно для англійських варіантів: "yesterday", "N days ago", "last week" тощо.
-3. Якщо є конкретна дата («15 квітня», «у понеділок») — визнач абсолютну дату. Для днів тижня обери найближчий минулий такий день.
-4. Якщо повідомлення містить події з різних дат — вибери основну дату (ту, про яку найбільше тексту).
-5. ВАЖЛИВО: повідомлення можуть бути українською, англійською або змішаними. Розпізнавай часові маркери в обох мовах.
+Rules:
+1. If the message describes events "today" or has no time markers — the date = the send date.
+2. If there are relative markers — compute the date relative to the send date:
+   - "yesterday" / "вчора" / "вчера" → send date minus 1 day
+   - "the day before yesterday" / "позавчора" / "позавчера" → minus 2 days
+   - "N days ago" / "N днів тому" / "N дней назад" / "N дней тому назад" → minus N days
+   - "last week" / "минулого тижня" / "на прошлой неделе" → minus 7 days (or the matching weekday)
+   - "last month" / "минулого місяця" / "в прошлом месяце" → minus ~30 days
+3. If there is a specific date ("April 15", "15 квітня", "on Monday", "в понедельник") — determine the absolute date. For weekdays choose the most recent past such day.
+4. If the message contains events from different dates — choose the main date (the one with the most text about it).
+5. IMPORTANT: messages may be in Ukrainian, English, or Russian, or mixed. Recognize time markers in all of these languages.
 
-Відповідай ТІЛЬКИ у JSON форматі:
+Reply with ONLY JSON in this format:
 {"classified_date": "YYYY-MM-DD", "confidence": "high|medium|low"}"""
 
-DAY_NAMES_UK = [
-    "понеділок",
-    "вівторок",
-    "середа",
-    "четвер",
-    "п'ятниця",
-    "субота",
-    "неділя",
+DAY_NAMES_EN = [
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
 ]
 
 
@@ -55,14 +54,14 @@ async def classify_date(
         The classified date.
     """
     send_date = send_datetime.strftime("%Y-%m-%d")
-    day_of_week = DAY_NAMES_UK[send_datetime.weekday()]
+    day_of_week = DAY_NAMES_EN[send_datetime.weekday()]
     send_time = send_datetime.strftime("%H:%M")
 
     user_prompt = (
-        f"Дата відправки: {send_date} ({day_of_week})\n"
-        f"Поточний час: {send_time}\n\n"
-        f'Повідомлення:\n"{message_content}"\n\n'
-        f"Визнач дату, до якої належить це повідомлення."
+        f"Send date: {send_date} ({day_of_week})\n"
+        f"Current time: {send_time}\n\n"
+        f'Message:\n"{message_content}"\n\n'
+        f"Determine the date this message belongs to."
     )
 
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
@@ -98,8 +97,7 @@ async def classify_date(
         except (json.JSONDecodeError, KeyError, ValueError) as exc:
             logger.warning("Invalid response on attempt %d: %s", attempt + 1, exc)
             last_error = exc
-            # Retry with stricter instruction is handled by the same prompt
-            # (system prompt already says "ТІЛЬКИ JSON")
+            # (system prompt already requires JSON-only output)
 
         except anthropic.APIError as exc:
             logger.error("Claude API error: %s", exc)

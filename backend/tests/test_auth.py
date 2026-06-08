@@ -73,3 +73,15 @@ class TestTelegramAuth:
     async def test_missing_hash_fails(self):
         data = {"id": "123", "first_name": "Test", "auth_date": "1234567890"}
         assert verify_telegram_auth(data) is False
+
+
+@pytest.mark.asyncio
+async def test_authenticate_returns_language(monkeypatch):
+    import app.services.auth as auth_mod
+
+    monkeypatch.setattr(auth_mod, "verify_telegram_auth", lambda data: True)
+
+    result = await auth_mod.authenticate_telegram(
+        {"id": 555001, "first_name": "Lang", "last_name": "Test", "username": "langtest", "hash": "x"}
+    )
+    assert result["user"]["language"] == "en"

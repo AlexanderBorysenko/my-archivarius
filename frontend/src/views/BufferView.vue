@@ -4,6 +4,8 @@ import { getBuffer, bake } from '../api'
 import { useEvents } from '../composables/useEvents'
 import type { RawMessage } from '../types/message'
 import MessageCard from '../components/message/MessageCard.vue'
+import { useI18n } from 'vue-i18n'
+const { t } = useI18n()
 
 interface AudioJob {
   id: string
@@ -87,7 +89,7 @@ useEvents({
   },
   'bake:error': (data: any) => {
     activeBake.value = null
-    alert(data.detail || 'Помилка запікання')
+    alert(data.detail || t('buffer.error'))
     loadBuffer()
   },
 })
@@ -98,13 +100,13 @@ onMounted(() => loadBuffer(true))
 <template>
   <div>
     <div class="flex items-center justify-between mb-4 sm:mb-6 gap-3">
-      <h1 class="text-lg sm:text-xl font-medium text-sand-800">Буфер повідомлень</h1>
+      <h1 class="text-lg sm:text-xl font-medium text-sand-800">{{ t('buffer.title') }}</h1>
       <button
         @click="doBake"
         :disabled="!canBake || messages.length === 0 || isBaking"
         class="px-3 sm:px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent hover:bg-accent-hover disabled:opacity-40 disabled:hover:bg-accent shrink-0"
       >
-        {{ isBaking ? 'Запікаю...' : `🔥 Запікти (${messages.length})` }}
+        {{ isBaking ? t('buffer.baking') : t('buffer.bake', { count: messages.length }) }}
       </button>
     </div>
 
@@ -113,10 +115,9 @@ onMounted(() => loadBuffer(true))
       <div class="flex items-center gap-2 mb-2">
         <div class="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin"></div>
         <p class="text-sm text-sand-800 font-medium">
-          <template v-if="activeBake.phase === 'highlights'">Вилучення хайлайтів…</template>
+          <template v-if="activeBake.phase === 'highlights'">{{ t('buffer.extractingHighlights') }}</template>
           <template v-else>
-            Запікаю {{ Math.min(activeBake.completed_steps + 1, activeBake.total_steps) }}
-            із {{ activeBake.total_steps }}
+            {{ t('buffer.progress', { current: Math.min(activeBake.completed_steps + 1, activeBake.total_steps), total: activeBake.total_steps }) }}
             <span v-if="activeBake.current_label" class="text-sand-500">— {{ activeBake.current_label }}</span>
           </template>
         </p>
@@ -127,7 +128,7 @@ onMounted(() => loadBuffer(true))
           :style="{ width: activeBake.total_steps > 0 ? `${(activeBake.completed_steps / activeBake.total_steps) * 100}%` : '0%' }"
         ></div>
       </div>
-      <p class="text-xs text-sand-400 mt-2">Буфер заблоковано до завершення запікання.</p>
+      <p class="text-xs text-sand-400 mt-2">{{ t('buffer.locked') }}</p>
     </div>
 
     <!-- Processing audio warning -->
@@ -135,8 +136,7 @@ onMounted(() => loadBuffer(true))
       <div class="flex items-center gap-2">
         <div class="w-4 h-4 border-2 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
         <p class="text-sm text-amber-800">
-          {{ processingAudio.length }} голосових повідомлень в процесі транскрибації.
-          Запікання заблоковано до завершення.
+          {{ t('buffer.processing', processingAudio.length) }}
         </p>
       </div>
     </div>
@@ -144,13 +144,13 @@ onMounted(() => loadBuffer(true))
     <!-- Bake result -->
     <div v-if="bakeResult" class="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
       <p class="text-sm text-green-800">
-        ✅ Створено {{ bakeResult.entries_created }} запис(ів)!
+        {{ t('buffer.created', bakeResult.entries_created) }}
         <router-link
           v-if="bakeResult.entries?.[0]"
           :to="`/diary/${bakeResult.entries[0].date}`"
           class="text-accent hover:underline ml-1"
         >
-          Переглянути →
+          {{ t('buffer.view') }}
         </router-link>
       </p>
     </div>
@@ -162,8 +162,8 @@ onMounted(() => loadBuffer(true))
 
     <!-- Empty buffer -->
     <div v-else-if="messages.length === 0 && processingAudio.length === 0" class="text-center py-12">
-      <p class="text-sand-500">Буфер порожній</p>
-      <p class="text-sand-400 text-sm mt-1">Надсилай повідомлення в Telegram-бот</p>
+      <p class="text-sand-500">{{ t('buffer.empty') }}</p>
+      <p class="text-sand-400 text-sm mt-1">{{ t('buffer.emptyHint') }}</p>
     </div>
 
     <!-- Messages list -->

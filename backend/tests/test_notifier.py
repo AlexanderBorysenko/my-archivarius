@@ -9,48 +9,45 @@ from app.core.events import event_bus
 
 
 @pytest.mark.asyncio
-class TestNotifyOutcome:
-    async def test_telegram_success_sends_message(self):
-        sent = AsyncMock()
-        with patch.object(notifier, "_telegram_send", sent):
-            await notifier.notify_outcome(
-                user_id="u1",
-                initiator=Initiator(channel="telegram", chat_id=42, message_id=7),
-                ok=True,
-                kind="voice",
-            )
-        sent.assert_awaited_once()
-        args, kwargs = sent.call_args
-        assert args[0] == 42  # chat_id
-        assert "✅" in args[1]
+@patch("app.services.notifier._telegram_send", new_callable=AsyncMock)
+async def test_success_is_localized(mock_send, test_user):
+    test_user.language = "en"
+    await test_user.save()
+    from app.services.notifier import notify_outcome
+    init = Initiator(channel="telegram", chat_id=123, message_id=1)
+    await notify_outcome(user_id=str(test_user.id), initiator=init, ok=True, kind="voice")
+    mock_send.assert_awaited_once()
+    args, _ = mock_send.call_args
+    assert args[1] == "✅ Voice transcribed and saved!"
 
-    async def test_telegram_failure_sends_error(self):
-        sent = AsyncMock()
-        with patch.object(notifier, "_telegram_send", sent):
-            await notifier.notify_outcome(
-                user_id="u1",
-                initiator=Initiator(channel="telegram", chat_id=42, message_id=7),
-                ok=False,
-                kind="voice",
-                error="boom",
-            )
-        sent.assert_awaited_once()
-        assert "❌" in sent.call_args.args[1]
 
-    async def test_web_initiator_publishes_sse_only(self):
-        published = []
+@pytest.mark.asyncio
+@patch("app.services.notifier._telegram_send", new_callable=AsyncMock)
+async def test_error_is_localized(mock_send, test_user):
+    test_user.language = "uk"
+    await test_user.save()
+    from app.services.notifier import notify_outcome
+    init = Initiator(channel="telegram", chat_id=123, message_id=1)
+    await notify_outcome(user_id=str(test_user.id), initiator=init, ok=False, kind="voice", error="boom")
+    args, _ = mock_send.call_args
+    assert args[1].startswith("❌ Помилка обробки")
 
-        async def fake_publish(uid, event, data=None):
-            published.append((uid, event))
 
-        sent = AsyncMock()
-        with patch.object(event_bus, "publish", fake_publish), \
-             patch.object(notifier, "_telegram_send", sent):
-            await notifier.notify_outcome(
-                user_id="u9",
-                initiator=Initiator(channel="web", chat_id=None, message_id=None),
-                ok=True,
-                kind="voice",
-            )
-        sent.assert_not_awaited()
-        assert ("u9", "buffer:update") in published
+@pytest.mark.asyncio
+async def test_web_initiator_publishes_sse_only(test_user):
+    published = []
+
+    async def fake_publish(uid, event, data=None):
+        published.append((uid, event))
+
+    sent = AsyncMock()
+    with patch.object(event_bus, "publish", fake_publish), \
+         patch.object(notifier, "_telegram_send", sent):
+        await notifier.notify_outcome(
+            user_id=str(test_user.id),
+            initiator=Initiator(channel="web", chat_id=None, message_id=None),
+            ok=True,
+            kind="voice",
+        )
+    sent.assert_not_awaited()
+    assert (str(test_user.id), "buffer:update") in published

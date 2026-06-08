@@ -4,6 +4,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { getEntryByDate, getEntries, getEntryRaw, updateEntry, deleteEntry, rebakeEntry } from '../api'
 import { useEvents } from '../composables/useEvents'
 import BlockRenderer from '../components/blocks/BlockRenderer.vue'
+import { useI18n } from 'vue-i18n'
+import { bcp47, type Language } from '../i18n'
+const { t, locale } = useI18n()
 
 const route = useRoute()
 const router = useRouter()
@@ -42,11 +45,11 @@ async function saveEdit() {
   try {
     blocks = JSON.parse(editContent.value)
   } catch {
-    alert('Некоректний JSON блоків')
+    alert(t('diary.invalidJson'))
     return
   }
   if (!Array.isArray(blocks)) {
-    alert('JSON має бути масивом блоків [ ... ]')
+    alert(t('diary.jsonMustBeArray'))
     return
   }
   saving.value = true
@@ -61,7 +64,7 @@ async function saveEdit() {
 
 async function removeEntry() {
   if (!entry.value) return
-  if (!confirm('Видалити цей запис? Цю дію неможливо скасувати.')) return
+  if (!confirm(t('diary.confirmDelete'))) return
   try {
     await deleteEntry(entry.value.id)
     if (prevDate.value) {
@@ -77,16 +80,16 @@ async function removeEntry() {
 
 async function rebake() {
   if (!entry.value) return
-  if (!confirm('Перезапекти запис заново? Поточний текст, включно з ручними правками, буде замінено.')) return
+  if (!confirm(t('diary.confirmRebake'))) return
   try {
     await rebakeEntry(entry.value.id)
     rebaking.value = true
-    bakeLabel.value = 'Запускаю перезапікання…'
+    bakeLabel.value = t('diary.rebakeStarting')
   } catch (err: any) {
     if (err.response?.status === 409) {
-      alert('Запікання вже виконується')
+      alert(t('diary.rebakeInProgress'))
     } else {
-      alert('Не вдалося запустити перезапікання')
+      alert(t('diary.rebakeFailed'))
     }
   }
 }
@@ -149,7 +152,7 @@ function goTo(date: string | null) {
 
 function formatDate(isoDate: string) {
   const d = new Date(isoDate + 'T00:00:00')
-  return d.toLocaleDateString('uk-UA', {
+  return d.toLocaleDateString(bcp47(locale.value as Language), {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
@@ -187,7 +190,7 @@ useEvents({
   'bake:started': () => { rebaking.value = true },
   'bake:progress': (data: any) => {
     rebaking.value = true
-    bakeLabel.value = data.phase === 'highlights' ? 'Вилучення хайлайтів…' : (data.label || 'Перезапікання…')
+    bakeLabel.value = data.phase === 'highlights' ? t('buffer.extractingHighlights') : (data.label || t('diary.rebaking'))
   },
   'bake:complete': (data: any) => {
     rebaking.value = false
@@ -201,7 +204,7 @@ useEvents({
   'bake:error': (data: any) => {
     rebaking.value = false
     bakeLabel.value = ''
-    alert(`Помилка перезапікання: ${data?.detail || ''}`)
+    alert(t('diary.bakeError', { detail: data?.detail || '' }))
   },
 })
 
@@ -224,17 +227,17 @@ watch(() => route.params.date, (newDate) => {
     <!-- Loading -->
     <div v-if="loading" class="text-center py-16">
       <div class="inline-block w-6 h-6 border-2 border-sand-300 border-t-accent rounded-full animate-spin"></div>
-      <p class="text-sand-500 mt-3">Завантаження...</p>
+      <p class="text-sand-500 mt-3">{{ t('diary.loading') }}</p>
     </div>
 
     <!-- No entries -->
     <div v-else-if="noEntry && !entry" class="text-center py-16">
-      <p class="text-sand-500 text-lg mb-2">Записів поки немає</p>
+      <p class="text-sand-500 text-lg mb-2">{{ t('diary.noEntries') }}</p>
       <p class="text-sand-400">
-        Надсилай повідомлення в Telegram-бот і натискай /bake
+        {{ t('diary.noEntriesHint') }}
       </p>
       <router-link to="/buffer" class="inline-block mt-4 text-accent hover:underline">
-        Перейти до буфера →
+        {{ t('diary.goToBuffer') }}
       </router-link>
     </div>
 
@@ -253,7 +256,7 @@ watch(() => route.params.date, (newDate) => {
             :class="prevDate ? 'text-sand-700 hover:bg-sand-100 cursor-pointer' : 'text-sand-400'"
           >
             <span class="sm:hidden">←</span>
-            <span class="hidden sm:inline">← Попередній</span>
+            <span class="hidden sm:inline">{{ t('diary.prev') }}</span>
           </button>
           <h1 class="text-xl font-medium text-sand-800 hidden sm:block">
             {{ formatDate(entry.date) }}
@@ -265,7 +268,7 @@ watch(() => route.params.date, (newDate) => {
             :class="nextDate ? 'text-sand-700 hover:bg-sand-100 cursor-pointer' : 'text-sand-400'"
           >
             <span class="sm:hidden">→</span>
-            <span class="hidden sm:inline">Наступний →</span>
+            <span class="hidden sm:inline">{{ t('diary.next') }}</span>
           </button>
         </div>
       </div>
@@ -278,7 +281,7 @@ watch(() => route.params.date, (newDate) => {
           class="px-2.5 sm:px-3 py-1.5 rounded-md text-sm border border-sand-200 text-sand-600 hover:bg-sand-100"
         >
           <span class="sm:hidden">✏️</span>
-          <span class="hidden sm:inline">✏️ Редагувати</span>
+          <span class="hidden sm:inline">{{ t('diary.edit') }}</span>
         </button>
         <button
           v-if="!editing"
@@ -286,13 +289,13 @@ watch(() => route.params.date, (newDate) => {
           class="px-2.5 sm:px-3 py-1.5 rounded-md text-sm border border-sand-200 text-red-500 hover:bg-red-50 hover:border-red-200"
         >
           <span class="sm:hidden">🗑️</span>
-          <span class="hidden sm:inline">🗑️ Видалити</span>
+          <span class="hidden sm:inline">{{ t('diary.delete') }}</span>
         </button>
       </div>
 
       <!-- Edit mode -->
       <div v-if="editing" class="bg-white rounded-xl border border-sand-200 p-4 sm:p-6 mb-4">
-        <p class="text-xs text-sand-400 mb-2">Редагування блоків (JSON). Прозу правьте у полі <code>text</code> блоків типу <code>markdown</code>.</p>
+        <p class="text-xs text-sand-400 mb-2">{{ t('diary.editHelper') }}</p>
         <textarea
           v-model="editContent"
           class="w-full min-h-[300px] border border-sand-200 rounded-lg p-4 text-sm text-sand-800 resize-y focus:outline-none focus:ring-2 focus:ring-accent/30"
@@ -304,13 +307,13 @@ watch(() => route.params.date, (newDate) => {
             :disabled="saving"
             class="px-4 py-2 text-sm bg-accent text-white rounded-md hover:bg-accent-hover disabled:opacity-40"
           >
-            {{ saving ? 'Збереження...' : 'Зберегти' }}
+            {{ saving ? t('diary.saving') : t('diary.save') }}
           </button>
           <button
             @click="cancelEdit"
             class="px-4 py-2 text-sm text-sand-600 border border-sand-200 rounded-md hover:bg-sand-100"
           >
-            Скасувати
+            {{ t('diary.cancel') }}
           </button>
         </div>
       </div>
@@ -319,7 +322,7 @@ watch(() => route.params.date, (newDate) => {
       <div v-else class="bg-white rounded-xl border border-sand-200 p-4 sm:p-6 mb-4">
         <!-- Table of Contents -->
         <nav v-if="tocItems.length > 1" class="mb-6 pb-4 border-b border-sand-200">
-          <p class="text-xs font-semibold uppercase tracking-wider text-sand-400 mb-2">Зміст</p>
+          <p class="text-xs font-semibold uppercase tracking-wider text-sand-400 mb-2">{{ t('diary.toc') }}</p>
           <ul class="space-y-1">
             <li v-for="item in tocItems" :key="item.id" :class="item.level === 3 ? 'ml-4' : ''">
               <a
@@ -337,7 +340,7 @@ watch(() => route.params.date, (newDate) => {
 
       <!-- Highlights -->
       <div v-if="entry.highlights?.length" class="mb-4">
-        <h3 class="text-sm font-medium text-sand-600 mb-2">Хайлайти</h3>
+        <h3 class="text-sm font-medium text-sand-600 mb-2">{{ t('diary.highlights') }}</h3>
         <div class="flex flex-wrap gap-2">
           <span
             v-for="h in entry.highlights"
@@ -358,7 +361,7 @@ watch(() => route.params.date, (newDate) => {
         @click="toggleRaw"
         class="text-sm text-sand-500 hover:text-sand-700"
       >
-        {{ showRaw ? 'Сховати оригінали' : `Показати оригінали (${entry.source_messages_count})` }}
+        {{ showRaw ? t('diary.hideRaw') : t('diary.showRaw', { count: entry.source_messages_count }) }}
       </button>
 
       <div v-if="showRaw" class="mt-3 space-y-2">
@@ -369,7 +372,7 @@ watch(() => route.params.date, (newDate) => {
         >
           <div class="flex items-center gap-2 text-sand-500 mb-1">
             <span>{{ msg.source_type === 'voice' ? '🎙️' : '✏️' }}</span>
-            <span>{{ new Date(msg.created_at).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' }) }}</span>
+            <span>{{ new Date(msg.created_at).toLocaleTimeString(bcp47(locale as Language), { hour: '2-digit', minute: '2-digit' }) }}</span>
           </div>
           <p class="text-sand-800">{{ msg.content }}</p>
         </div>
@@ -380,7 +383,7 @@ watch(() => route.params.date, (newDate) => {
             :disabled="rebaking"
             class="px-3 py-2 text-sm rounded-md border border-sand-200 text-sand-700 hover:bg-sand-100 disabled:opacity-40"
           >
-            {{ rebaking ? (bakeLabel || 'Перезапікання…') : '🔁 Перезапекти' }}
+            {{ rebaking ? (bakeLabel || t('diary.rebaking')) : t('diary.rebake') }}
           </button>
         </div>
       </div>

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 
 from app.models.entry import Entry
 from app.models.highlight import Highlight
-from app.services.highlights import extract_highlights, _parse_response, _build_system_prompt
+from app.services.highlights import extract_highlights, _parse_response, _build_system_prompt, SYSTEM_PROMPT_TEMPLATE
 from app.models.user import CustomCategory
 
 
@@ -41,6 +41,18 @@ class TestBuildSystemPrompt:
         assert "health" in prompt
         assert "Здоров'я та фітнес" in prompt
         assert "Додаткові категорії" in prompt
+
+
+class TestHighlightPromptLanguage:
+    def test_template_has_mirror_language_rule(self):
+        assert "same language" in SYSTEM_PROMPT_TEMPLATE.lower()
+
+    def test_template_keeps_category_names_untranslated(self):
+        assert "do not translate category names" in SYSTEM_PROMPT_TEMPLATE.lower()
+
+    def test_built_prompt_lists_default_categories(self):
+        prompt = _build_system_prompt(None)
+        assert "idea" in prompt and "insight" in prompt
 
 
 @pytest.mark.asyncio

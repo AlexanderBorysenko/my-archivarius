@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps<{ block: any; media: Record<string, any> }>()
 
@@ -35,7 +38,7 @@ const widthStyle = computed(() =>
     </template>
     <div v-else class="diary-figure__unavailable">
       <img v-if="info.has_poster" :src="`${src}/poster`" loading="lazy" />
-      <span>Медіа недоступне</span>
+      <span>{{ t('block.mediaUnavailable') }}</span>
     </div>
     <figcaption v-if="block.caption" class="diary-figure__caption">{{ block.caption }}</figcaption>
   </figure>

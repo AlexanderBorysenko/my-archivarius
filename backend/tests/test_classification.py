@@ -4,7 +4,7 @@ import pytest
 from datetime import date, datetime
 from unittest.mock import AsyncMock, patch, MagicMock
 
-from app.services.classification import classify_date, _parse_response
+from app.services.classification import classify_date, _parse_response, SYSTEM_PROMPT, DAY_NAMES_EN
 
 
 class TestParseResponse:
@@ -76,3 +76,18 @@ class TestClassifyDate:
         send_dt = datetime(2026, 4, 22, 10, 30)
         result = await classify_date("test", send_dt, max_retries=1)
         assert result == date(2026, 4, 22)
+
+
+class TestPromptIsLanguageAware:
+    def test_mentions_three_languages(self):
+        assert "Russian" in SYSTEM_PROMPT
+        assert "Ukrainian" in SYSTEM_PROMPT
+        assert "English" in SYSTEM_PROMPT
+
+    def test_recognizes_russian_markers(self):
+        assert "позавчера" in SYSTEM_PROMPT
+        assert "дней назад" in SYSTEM_PROMPT
+
+    def test_english_weekday_names(self):
+        assert DAY_NAMES_EN[0] == "Monday"
+        assert len(DAY_NAMES_EN) == 7

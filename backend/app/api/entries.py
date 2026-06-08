@@ -12,10 +12,12 @@ from app.models.entry import Entry
 from app.models.raw_message import RawMessage
 from app.models.highlight import Highlight
 from app.models.media_file import MediaFile
+from app.models.user import User
 from app.services.blocks import collect_shortcodes, normalize_blocks, blocks_to_text
 from app.services.bake import rebake_entry
 from app.services.bake_orchestrator import active_bake, launch_bake, serialize_bake_job
 from app.api.dependencies import get_current_user_id
+from app.core.i18n import t, DEFAULT_LANG
 
 router = APIRouter(prefix="/api/entries", tags=["Entries"])
 
@@ -64,9 +66,11 @@ async def get_entry_by_date(
 ):
     """Get entry by date with prev/next navigation."""
     uid = ObjectId(user_id)
+    user = await User.get(user_id)
+    lang = user.language if user else DEFAULT_LANG
     entry = await Entry.find_one({"user_id": uid, "date": entry_date})
     if not entry:
-        raise HTTPException(status_code=404, detail="Запис за цю дату не знайдено")
+        raise HTTPException(status_code=404, detail=t("entry_not_found_for_date", lang))
 
     prev_entry = await Entry.find(
         {"user_id": uid, "date": {"$lt": entry_date}}
@@ -90,9 +94,11 @@ async def get_entry(
     user_id: str = Depends(get_current_user_id),
 ):
     """Get a specific entry by ID."""
+    user = await User.get(user_id)
+    lang = user.language if user else DEFAULT_LANG
     entry = await Entry.get(entry_id)
     if not entry or str(entry.user_id) != user_id:
-        raise HTTPException(status_code=404, detail="Запис не знайдено")
+        raise HTTPException(status_code=404, detail=t("entry_not_found", lang))
 
     highlights = await Highlight.find({"source_entries": entry.id}).to_list()
     return await _entry_full(entry, highlights, ObjectId(user_id))
@@ -104,9 +110,11 @@ async def get_entry_raw_messages(
     user_id: str = Depends(get_current_user_id),
 ):
     """Get the raw messages that were baked into this entry."""
+    user = await User.get(user_id)
+    lang = user.language if user else DEFAULT_LANG
     entry = await Entry.get(entry_id)
     if not entry or str(entry.user_id) != user_id:
-        raise HTTPException(status_code=404, detail="Запис не знайдено")
+        raise HTTPException(status_code=404, detail=t("entry_not_found", lang))
 
     messages = await RawMessage.find(
         {"_id": {"$in": entry.source_messages}}
@@ -126,13 +134,15 @@ async def rebake(
     concurrency guard, progress, and SSE events with the buffer bake.
     """
     uid = ObjectId(user_id)
+    user = await User.get(user_id)
+    lang = user.language if user else DEFAULT_LANG
     entry = await Entry.get(entry_id)
     if not entry or str(entry.user_id) != user_id:
-        raise HTTPException(status_code=404, detail="Запис не знайдено")
+        raise HTTPException(status_code=404, detail=t("entry_not_found", lang))
     if not entry.source_messages:
-        raise HTTPException(status_code=422, detail="Немає оригіналів для перезапікання")
+        raise HTTPException(status_code=422, detail=t("no_originals_rebake", lang))
     if await active_bake(uid) is not None:
-        raise HTTPException(status_code=409, detail="Запікання вже виконується")
+        raise HTTPException(status_code=409, detail=t("baking_in_progress", lang))
 
     try:
         job = await launch_bake(
@@ -140,7 +150,7 @@ async def rebake(
             engine=lambda report: rebake_entry(uid, entry, report),
         )
     except DuplicateKeyError:
-        raise HTTPException(status_code=409, detail="Запікання вже виконується")
+        raise HTTPException(status_code=409, detail=t("baking_in_progress", lang))
 
     return serialize_bake_job(job)
 
@@ -156,9 +166,11 @@ async def update_entry(
     user_id: str = Depends(get_current_user_id),
 ):
     """Update an entry's blocks (server-normalized)."""
+    user = await User.get(user_id)
+    lang = user.language if user else DEFAULT_LANG
     entry = await Entry.get(entry_id)
     if not entry or str(entry.user_id) != user_id:
-        raise HTTPException(status_code=404, detail="Запис не знайдено")
+        raise HTTPException(status_code=404, detail=t("entry_not_found", lang))
 
     media_files = await MediaFile.find({"user_id": entry.user_id}).to_list()
     media_ctx = {f.shortcode: f.kind.value for f in media_files}
@@ -179,9 +191,11 @@ async def delete_entry(
     user_id: str = Depends(get_current_user_id),
 ):
     """Delete an entry and its associated highlights."""
+    user = await User.get(user_id)
+    lang = user.language if user else DEFAULT_LANG
     entry = await Entry.get(entry_id)
     if not entry or str(entry.user_id) != user_id:
-        raise HTTPException(status_code=404, detail="Запис не знайдено")
+        raise HTTPException(status_code=404, detail=t("entry_not_found", lang))
 
     await Highlight.find({"source_entries": entry.id}).delete()
     await entry.delete()

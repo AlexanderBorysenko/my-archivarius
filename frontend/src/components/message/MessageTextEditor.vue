@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import type { RawMessage } from '../../types/message'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps<{ message: RawMessage }>()
 const emit = defineEmits<{ save: [content: string]; cancel: [] }>()
@@ -20,13 +23,13 @@ const content = ref(props.message.content)
         @click="emit('save', content)"
         class="px-3 py-1 text-sm bg-accent text-white rounded-md"
       >
-        Зберегти
+        {{ t('common.save') }}
       </button>
       <button
         @click="emit('cancel')"
         class="px-3 py-1 text-sm text-sand-600 border border-sand-200 rounded-md"
       >
-        Скасувати
+        {{ t('common.cancel') }}
       </button>
     </div>
   </div>

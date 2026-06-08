@@ -16,44 +16,56 @@ from app.models.user import User
 from app.services.highlights import extract_highlights_for_entries
 from app.services.blocks import build_blocks_schema, normalize_blocks, ensure_all_blocks
 from app.services.llm import output_config
+from app.core.i18n import LANG_NAMES, DEFAULT_LANG
 
 logger = logging.getLogger(__name__)
 
 ProgressFn = Callable[[int, int, str, str], Awaitable[None]]
 """Async callback: (completed_steps, total_steps, current_label, phase)."""
 
-CORE_RULES = """Ти — редактор особистого щоденника. Твоє завдання — перетворити сирі повідомлення (нотатки, голосові транскрипції) у зв'язний текст щоденникового запису.
+CORE_RULES = """You are an editor of a personal diary. Your task is to transform raw messages (notes, voice transcriptions) into a coherent diary entry.
 
-Обов'язкові правила:
-1. ЗБЕРЕЖИ весь смисловий зміст — не вигадуй фактів, не додавай того, чого не було.
-2. Виправляй граматичні помилки та помилки транскрибації, але зберігай авторський стиль та характерні вирази.
-3. Хронологічний порядок: якщо можна визначити послідовність подій — зберігай її.
-4. Якщо є повтори (одне й те саме сказано в тексті і в голосовому) — об'єднай, не дублюй.
-5. Прозу пиши у блоках типу "markdown" (поле text) звичайним Markdown: абзаци, **жирний**, списки.
-6. Не додавай вступів типу "Ось ваш запис:" чи пояснень — лише блоки запису."""
+Mandatory rules:
+1. PRESERVE all meaning — do not invent facts or add anything that was not there.
+2. Fix grammar and transcription errors, but keep the author's voice and characteristic expressions.
+3. Chronological order: if a sequence of events can be determined, preserve it.
+4. If something is repeated (the same thing said in a text note and a voice note) — merge it, do not duplicate.
+5. Write prose in "markdown"-type blocks (the text field) using normal Markdown: paragraphs, **bold**, lists.
+6. Do not add any preface like "Here is your entry:" or explanations — return only the entry blocks.
+7. LANGUAGE: Write the entry in the SAME language(s) the author used in the source messages. If the author mixes languages, preserve that mix and their phrasing and characteristic expressions — do not normalize to a single language. When extending an existing entry, match the language of that existing entry. Never translate the author's content into another language."""
 
-BLOCKS_RULES = """Структура запису — впорядкований список блоків (blocks):
-- "markdown" — проза (поле text). Структуруй запис заголовками `## Назва секції` (за потреби `### Підтема`); кожна секція — окрема тема чи подія дня. Не використовуй `---` для розділення — лише заголовки.
-- Розбивай прозу на кілька markdown-блоків так, щоб медіа-блоки стояли між абзацами у змістовно доречних місцях."""
+BLOCKS_RULES = """Entry structure — an ordered list of blocks:
+- "markdown" — prose (the text field). Structure the entry with headings `## Section title` (and `### Subtopic` where needed); each section is a separate topic or event of the day. Do NOT use `---` to separate topics — only headings.
+- Split the prose into several markdown blocks so that media blocks can sit between paragraphs at contextually appropriate places."""
 
-DEFAULT_STYLE = """Стиль: особистий щоденник — від першої особи, природній, не надто формальний."""
+DEFAULT_STYLE = """Style: a personal diary — first person, natural, not overly formal."""
 
-MEDIA_RULES = """Медіа-блоки (коли надано медіа-реєстр):
-- Розмісти КОЖЕН файл із реєстру у відповідному за змістом місці. descriptive — лише підказка, де доречно; НЕ виводь його в текст.
-- 2+ пов'язаних ФОТО (одна подія/локація) → блок "gallery" (images: список shortcode; caption: короткий підпис).
-- Одне медіа (фото АБО відео) → блок "figure" (media: shortcode; width ∈ {25,33,50,100}; align ∈ {left,right,center,full}; caption):
-  • align left/right (width 25/33/50) — фото збоку, текст його обтікає (float).
-  • width 50 + align center — змістовний кадр окремо по центру.
-  • width 100 + align full — ключовий або широкий кадр / відео на всю ширину.
-- ПОРЯДОК обтічних фото (align left/right) — критично: став такий "figure" ПЕРЕД тим markdown-блоком, чий текст його описує (обтікання діє лише на текст ПІСЛЯ фото в списку блоків; якщо поставити фото після тексту — обтікання не спрацює). Обтікання скидається на кожному заголовку (`##`/`###`), тож тримай обтічне фото в межах його секції: після заголовка секції, перед її прозою. Фото align center/full порядок не важливий — став між абзацами де доречно.
-- Підпис (caption) пиши сам, короткий. Не використовуй один і той самий shortcode двічі. Галерея — лише для фото; відео завжди як окремий "figure"."""
+MEDIA_RULES = """Media blocks (when a media registry is provided):
+- Place EVERY file from the registry at a contextually appropriate spot. "descriptive" is only a hint about where it fits; do NOT output it into the text.
+- 2+ related PHOTOS (one event/location) → a "gallery" block (images: list of shortcodes; caption: a short caption).
+- A single media item (photo OR video) → a "figure" block (media: shortcode; width ∈ {25,33,50,100}; align ∈ {left,right,center,full}; caption):
+  • align left/right (width 25/33/50) — the photo sits to the side and the text wraps around it (float).
+  • width 50 + align center — a meaningful frame on its own, centered.
+  • width 100 + align full — a key or wide frame / video at full width.
+- ORDER of floated photos (align left/right) is critical: put such a "figure" BEFORE the markdown block whose text describes it (the float only affects text AFTER the photo in the block list; placing the photo after the text breaks the wrap). The float resets at every heading (`##`/`###`), so keep a floated photo within its section: after the section heading, before its prose. For align center/full photos order does not matter — place them between paragraphs where appropriate.
+- Write the caption yourself, short. Do not use the same shortcode twice. A gallery is for photos only; video is always a separate "figure"."""
 
 
-def build_system_prompt(user_style: str | None, with_media: bool = False) -> str:
+def build_system_prompt(
+    user_style: str | None,
+    with_media: bool = False,
+    fallback_lang: str | None = None,
+) -> str:
     style = user_style.strip() if user_style and user_style.strip() else None
     prompt = f"{CORE_RULES}\n\n{BLOCKS_RULES}\n\n{style if style else DEFAULT_STYLE}"
     if with_media:
         prompt = f"{prompt}\n\n{MEDIA_RULES}"
+    if fallback_lang:
+        lang_name = LANG_NAMES.get(fallback_lang, LANG_NAMES[DEFAULT_LANG])
+        prompt = (
+            f"{prompt}\n\nThe author provided no text for this entry. "
+            f"Write it in {lang_name}."
+        )
     return prompt
 
 
@@ -79,22 +91,20 @@ async def _render_date_content(
     media_ctx: dict,
     *,
     existing_blocks: list | None,
+    lang: str = DEFAULT_LANG,
 ) -> list[dict]:
-    """Produce the finished block list for one date from its messages (no DB writes).
-
-    ``existing_blocks is None`` → fresh generation (``_bake_new``);
-    otherwise → integrate the messages into it (``_bake_append``).
-    """
+    """Produce the finished block list for one date from its messages (no DB writes)."""
     narrative, media = _split_messages(messages)
     registry = await _build_media_registry(media)
     shortcodes = [e[0] for e in registry]
     registry_text = _format_media_registry(registry) if registry else ""
+    fallback_lang = None if narrative else lang
 
     if existing_blocks is None:
-        raw = await _bake_new(narrative, entry_date, style_prompt, registry_text, bool(registry))
+        raw = await _bake_new(narrative, entry_date, style_prompt, registry_text, bool(registry), fallback_lang)
     else:
         raw = await _bake_append(
-            existing_blocks, narrative, entry_date, style_prompt, registry_text, bool(registry)
+            existing_blocks, narrative, entry_date, style_prompt, registry_text, bool(registry), fallback_lang
         )
 
     blocks, used = normalize_blocks(raw, media_ctx)
@@ -130,6 +140,7 @@ async def bake_messages(
     """
     user = await User.get(user_id)
     style_prompt = user.bake_style_prompt if user else None
+    lang = user.language if user else DEFAULT_LANG
     media_ctx = await _media_ctx(user_id)
 
     by_date: dict[date, list[RawMessage]] = defaultdict(list)
@@ -142,12 +153,12 @@ async def bake_messages(
     entries = []
     for i, entry_date in enumerate(sorted_dates):
         if on_progress:
-            await on_progress(i, total, f"запис за {entry_date.strftime('%d.%m.%Y')}", "baking")
+            await on_progress(i, total, f"entry for {entry_date.strftime('%d.%m.%Y')}", "baking")
 
         date_messages = by_date[entry_date]
         date_messages.sort(key=lambda m: m.created_at or datetime.min)
 
-        entry = await _bake_date(user_id, entry_date, date_messages, style_prompt, media_ctx)
+        entry = await _bake_date(user_id, entry_date, date_messages, style_prompt, media_ctx, lang)
         entries.append(entry)
 
         for msg in date_messages:
@@ -155,7 +166,7 @@ async def bake_messages(
             await msg.save()
 
     if on_progress:
-        await on_progress(total, total, "вилучення хайлайтів", "highlights")
+        await on_progress(total, total, "extracting highlights", "highlights")
 
     await _safe_extract_highlights(entries, user)
     return entries
@@ -174,6 +185,7 @@ async def rebake_entry(
     """
     user = await User.get(user_id)
     style_prompt = user.bake_style_prompt if user else None
+    lang = user.language if user else DEFAULT_LANG
     media_ctx = await _media_ctx(user_id)
 
     messages = await RawMessage.find(
@@ -181,15 +193,15 @@ async def rebake_entry(
     ).sort("+created_at").to_list()
 
     if on_progress:
-        await on_progress(0, 1, f"запис за {entry.date.strftime('%d.%m.%Y')}", "baking")
+        await on_progress(0, 1, f"entry for {entry.date.strftime('%d.%m.%Y')}", "baking")
 
     entry.blocks = await _render_date_content(
-        entry.date, messages, style_prompt, media_ctx, existing_blocks=None,
+        entry.date, messages, style_prompt, media_ctx, existing_blocks=None, lang=lang,
     )
     await _save_entry(entry)
 
     if on_progress:
-        await on_progress(1, 1, "вилучення хайлайтів", "highlights")
+        await on_progress(1, 1, "extracting highlights", "highlights")
     await _safe_extract_highlights([entry], user)
     return [entry]
 
@@ -199,16 +211,16 @@ async def _build_media_registry(media_messages: list[RawMessage]) -> list[tuple[
     entries: list[tuple[str, str, str]] = []
     for m in sorted(media_messages, key=lambda x: x.created_at or datetime.min):
         files = await MediaFile.find({"_id": {"$in": m.media_file_ids}}).to_list()
-        desc = m.descriptive or "без опису"
+        desc = m.descriptive or "no description"
         for f in files:
             entries.append((f.shortcode, f.kind.value, desc))
     return entries
 
 
 def _format_media_registry(entries: list[tuple[str, str, str]]) -> str:
-    lines = ["Медіа-реєстр (descriptive — лише підказка, НЕ включай у текст):"]
+    lines = ["Media registry (descriptive — a hint only, do NOT include it in the text):"]
     for shortcode, kind, desc in entries:
-        lines.append(f'- {shortcode} ({kind}) — контекст: "{desc}"')
+        lines.append(f'- {shortcode} ({kind}) — context: "{desc}"')
     return "\n".join(lines)
 
 
@@ -218,6 +230,7 @@ async def _bake_date(
     messages: list[RawMessage],
     style_prompt: str | None = None,
     media_ctx: dict | None = None,
+    lang: str = DEFAULT_LANG,
 ) -> Entry:
     """Bake messages for a single date into an Entry (create or append)."""
     media_ctx = media_ctx or {}
@@ -225,7 +238,7 @@ async def _bake_date(
 
     blocks = await _render_date_content(
         entry_date, messages, style_prompt, media_ctx,
-        existing_blocks=existing.blocks if existing else None,
+        existing_blocks=existing.blocks if existing else None, lang=lang,
     )
 
     if existing:
@@ -246,41 +259,44 @@ async def _bake_date(
 
 async def _bake_new(
     messages: list[RawMessage], entry_date: date, style_prompt: str | None = None,
-    registry_text: str = "", with_media: bool = False,
+    registry_text: str = "", with_media: bool = False, fallback_lang: str | None = None,
 ) -> list[dict]:
     """Generate a new diary entry (block list) from messages."""
     formatted_date = entry_date.strftime("%d %B %Y")
-    messages_text = _format_messages(messages) if messages else "(немає текстових повідомлень)"
+    messages_text = _format_messages(messages) if messages else "(no text messages)"
     media_block = f"\n\n{registry_text}\n" if registry_text else ""
     user_prompt = (
-        f"Дата: {formatted_date}\n\n"
-        f"Сирі повідомлення (хронологічно):\n\n{messages_text}\n"
+        f"Date: {formatted_date}\n\n"
+        f"Raw messages (chronological):\n\n{messages_text}\n"
         f"{media_block}\n"
-        f"Створи щоденниковий запис за цю дату."
+        f"Create a diary entry for this date."
     )
     return await _call_claude(user_prompt, style_prompt=style_prompt,
-                              temperature=0.7, max_tokens=8192, with_media=with_media)
+                              temperature=0.7, max_tokens=8192, with_media=with_media,
+                              fallback_lang=fallback_lang)
 
 
 async def _bake_append(
     existing_blocks: list, new_messages: list[RawMessage], entry_date: date,
     style_prompt: str | None = None, registry_text: str = "", with_media: bool = False,
+    fallback_lang: str | None = None,
 ) -> list[dict]:
     """Integrate new messages into an existing entry's block list."""
     formatted_date = entry_date.strftime("%d %B %Y")
-    messages_text = _format_messages(new_messages) if new_messages else "(немає нових текстових повідомлень)"
+    messages_text = _format_messages(new_messages) if new_messages else "(no new text messages)"
     media_block = f"\n\n{registry_text}\n" if registry_text else ""
     existing_json = json.dumps(existing_blocks, ensure_ascii=False)
     user_prompt = (
-        f"Дата: {formatted_date}\n\n"
-        f"Існуючий запис (блоки JSON):\n{existing_json}\n\n"
-        f"Нові повідомлення, які потрібно інтегрувати:\n\n{messages_text}\n"
+        f"Date: {formatted_date}\n\n"
+        f"Existing entry (blocks JSON):\n{existing_json}\n\n"
+        f"New messages to integrate:\n\n{messages_text}\n"
         f"{media_block}\n"
-        f"Доповни існуючий запис новою інформацією, зберігаючи наявні блоки. "
-        f"Не дублюй те, що вже описано. Поверни ПОВНИЙ оновлений список блоків."
+        f"Extend the existing entry with the new information, keeping the existing blocks. "
+        f"Do not duplicate what is already described. Return the FULL updated list of blocks."
     )
     return await _call_claude(user_prompt, style_prompt=style_prompt,
-                              temperature=0.5, max_tokens=8192, with_media=with_media)
+                              temperature=0.5, max_tokens=8192, with_media=with_media,
+                              fallback_lang=fallback_lang)
 
 
 def _format_messages(messages: list[RawMessage]) -> str:
@@ -302,6 +318,7 @@ async def _call_claude(
     with_media: bool = False,
     model: str | None = None,
     effort: str | None = None,
+    fallback_lang: str | None = None,
 ) -> list[dict]:
     """Call Claude with structured outputs; return the (un-normalized) block list.
 
@@ -309,7 +326,7 @@ async def _call_claude(
     override ``model``/``effort`` to reuse this one structured-output path.
     """
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-    system_prompt = build_system_prompt(style_prompt, with_media=with_media)
+    system_prompt = build_system_prompt(style_prompt, with_media=with_media, fallback_lang=fallback_lang)
     schema = build_blocks_schema()
     model = model or settings.claude_model_bake
     effort = settings.claude_effort_bake if effort is None else effort

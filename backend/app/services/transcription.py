@@ -37,7 +37,6 @@ async def transcribe_audio(audio_ref: str) -> str:
         response = await client.audio.transcriptions.create(
             model="whisper-1",
             file=audio_file,
-            language="uk",
         )
     text = response.text.strip()
     if not text:

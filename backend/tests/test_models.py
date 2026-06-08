@@ -152,3 +152,16 @@ class TestRawMessageEventId:
         fetched = await RawMessage.find_one({"event_id": "evt-xyz"})
         assert fetched is not None
         assert fetched.id == rm2.id
+
+
+@pytest.mark.asyncio
+class TestUserLanguage:
+    async def test_default_language_is_en(self, test_user):
+        refreshed = await User.get(test_user.id)
+        assert refreshed.language == "en"
+
+    async def test_language_can_be_set(self, test_user):
+        test_user.language = "uk"
+        await test_user.save()
+        refreshed = await User.get(test_user.id)
+        assert refreshed.language == "uk"

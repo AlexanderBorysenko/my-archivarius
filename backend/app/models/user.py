@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from beanie import Document, Indexed
 from pydantic import BaseModel, Field
@@ -32,6 +32,7 @@ class User(Document):
     custom_categories: list[CustomCategory] = Field(default_factory=list)
     category_overrides: list[CategoryOverride] = Field(default_factory=list)
     bake_style_prompt: Optional[str] = None
+    language: Literal["en", "uk", "ru"] = "en"
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Settings:

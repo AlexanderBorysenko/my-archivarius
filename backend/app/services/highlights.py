@@ -17,29 +17,30 @@ from app.services.llm import output_config
 logger = logging.getLogger(__name__)
 
 DEFAULT_CATEGORY_PROMPTS = {
-    "idea": "креативні думки, плани, задуми, бізнес-ідеї",
-    "story": "визначні події, подорожі, зустрічі, історії варті запам'ятовування",
-    "mood": "емоційний стан, рефлексія, психологічні спостереження",
-    "insight": "висновки, усвідомлення, «аха-моменти», життєві уроки, зсуви у світогляді, нове розуміння себе або життя",
+    "idea": "creative thoughts, plans, intentions, business ideas",
+    "story": "notable events, trips, meetings, stories worth remembering",
+    "mood": "emotional state, reflection, psychological observations",
+    "insight": "conclusions, realizations, 'aha' moments, life lessons, shifts in worldview, new understanding of oneself or life",
 }
 
-SYSTEM_PROMPT_TEMPLATE = """Ти — аналітик особистого щоденника. Твоє завдання — виокремити з тексту запису значущі хайлайти (вижимки).
+SYSTEM_PROMPT_TEMPLATE = """You are an analyst of a personal diary. Your task is to extract meaningful highlights from the entry text.
 
-Категорії хайлайтів:
+Highlight categories:
 {categories_section}
 
-Правила:
-1. Хайлайт має бути самодостатнім — зрозумілим без контексту решти запису.
-2. Не створюй хайлайт з буденних речей ("поснідав", "поїхав на роботу").
-3. Один запис може мати 0-5 хайлайтів. Якщо нічого значущого — поверни порожній масив.
-4. Заголовок — короткий, ємний (3-7 слів).
-5. Контент — стислий переказ (1-3 речення), що передає суть.
-6. Використовуй ТІЛЬКИ категорії з переліку вище.
+Rules:
+1. A highlight must be self-contained — understandable without the rest of the entry.
+2. Do not create highlights from mundane things ("had breakfast", "went to work").
+3. One entry may have 0-5 highlights. If nothing is meaningful — return an empty array.
+4. Title — short and pithy (3-7 words).
+5. Content — a concise summary (1-3 sentences) conveying the essence.
+6. Use ONLY the categories from the list above, and emit the category value EXACTLY as one of the listed category names — do not translate category names.
+7. LANGUAGE: produce each highlight's title and content in the SAME language as the diary entry; preserve the author's phrasing; never translate.
 
-Формат відповіді (JSON):
+Response format (JSON):
 {{"highlights": [{{"title": "...", "category": "...", "content": "..."}}]}}
 
-Відповідай ТІЛЬКИ у JSON форматі."""
+Reply with ONLY JSON."""
 
 
 def _build_system_prompt(user: Optional[User] = None) -> str:
@@ -66,7 +67,7 @@ def _build_system_prompt(user: Optional[User] = None) -> str:
                 lines.append(f"- **{cat.name}** — {cat.prompt}")
 
     if not lines:
-        lines.append("- **insight** — будь-що значуще, варте уваги")
+        lines.append("- **insight** — anything meaningful, worth attention")
 
     return SYSTEM_PROMPT_TEMPLATE.format(categories_section="\n".join(lines))
 
@@ -84,9 +85,9 @@ async def extract_highlights(entry: Entry, user: Optional[User] = None) -> list[
 
     formatted_date = entry.date.strftime("%d %B %Y")
     user_prompt = (
-        f"Дата запису: {formatted_date}\n\n"
-        f"Текст запису:\n---\n{blocks_to_text(entry.blocks)}\n---\n\n"
-        f"Виокреми хайлайти з цього запису."
+        f"Entry date: {formatted_date}\n\n"
+        f"Entry text:\n---\n{blocks_to_text(entry.blocks)}\n---\n\n"
+        f"Extract highlights from this entry."
     )
 
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)

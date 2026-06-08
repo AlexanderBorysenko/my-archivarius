@@ -1,4 +1,11 @@
 import api from './client'
+import type { Language } from '../i18n'
+
+export interface SettingsResponse {
+  bake_style_prompt: string | null
+  default_style_prompt: string
+  language: Language
+}
 
 // Auth
 export const authTelegram = (data: Record<string, unknown>) =>
@@ -76,10 +83,8 @@ export const deleteHighlight = (id: string) =>
   api.delete(`/highlights/${id}`)
 
 // Settings
-export const getSettings = () =>
-  api.get('/settings')
-
-export const updateSettings = (body: { bake_style_prompt?: string | null }) =>
+export const getSettings = () => api.get<SettingsResponse>('/settings')
+export const updateSettings = (body: { bake_style_prompt?: string | null; language?: Language }) =>
   api.patch('/settings', body)
 
 export const previewStyle = (body: { style_prompt?: string | null }) =>

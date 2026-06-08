@@ -120,5 +120,6 @@ async def authenticate_telegram(auth_data: dict) -> dict:
             "telegram_id": user.telegram_id,
             "username": user.username,
             "display_name": user.display_name,
+            "language": user.language,
         },
     }

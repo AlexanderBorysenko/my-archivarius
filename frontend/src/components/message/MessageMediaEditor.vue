@@ -5,6 +5,9 @@ import type { RawMessage } from '../../types/message'
 import { editItemSrc } from '../../utils/media'
 import { useMediaEditor } from '../../composables/useMediaEditor'
 import MediaThumb from './MediaThumb.vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps<{ message: RawMessage }>()
 const emit = defineEmits<{ changed: []; cancel: [] }>()
@@ -16,12 +19,12 @@ onMounted(() => start(props.message))
 onUnmounted(reset)
 
 async function onSave() {
-  if (items.value.length === 0 && !confirm('Видалити повідомлення цілком?')) return
+  if (items.value.length === 0 && !confirm(t('message.confirmDeleteWhole'))) return
   try {
     await save(props.message.id)
     emit('changed')
   } catch (err: any) {
-    alert(err.response?.data?.detail || 'Не вдалося зберегти зміни')
+    alert(err.response?.data?.detail || t('message.saveFailed'))
   }
 }
 
@@ -70,7 +73,7 @@ function onCancel() {
     />
 
     <p class="text-xs text-sand-400 mt-1">
-      Перетягни, щоб змінити порядок. Можна вставити зображення з буфера (Ctrl/⌘+V).
+      {{ t('message.reorderHint') }}
     </p>
     <div class="flex gap-2 mt-2">
       <button
@@ -78,14 +81,14 @@ function onCancel() {
         :disabled="saving"
         class="px-3 py-1 text-sm bg-accent text-white rounded-md disabled:opacity-50"
       >
-        {{ saving ? 'Зберігаю…' : 'Зберегти' }}
+        {{ saving ? t('common.saving') : t('common.save') }}
       </button>
       <button
         @click="onCancel"
         :disabled="saving"
         class="px-3 py-1 text-sm text-sand-600 border border-sand-200 rounded-md disabled:opacity-50"
       >
-        Скасувати
+        {{ t('common.cancel') }}
       </button>
     </div>
   </div>

@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from app.core.config import settings
+from app.core.i18n import t, DEFAULT_LANG
 from app.models.media_file import MediaFile, MediaKind, MediaStatus
 from app.services.media_storage import allocate_shortcode, save_bytes, save_poster
 
@@ -58,10 +59,10 @@ async def create_web_media(user_id, data: bytes, content_type: str | None,
     elif ct in _VIDEO_MIME_EXT:
         kind, ext = MediaKind.VIDEO, _VIDEO_MIME_EXT[ct]
     else:
-        raise HTTPException(status_code=415, detail=f"Непідтримуваний тип файлу: {ct or '?'}")
+        raise HTTPException(status_code=415, detail=t("unsupported_file_type", DEFAULT_LANG, ct=ct or '?'))
 
     if len(data) > settings.media_max_upload_bytes:
-        raise HTTPException(status_code=413, detail="Файл завеликий")
+        raise HTTPException(status_code=413, detail=t("file_too_large", DEFAULT_LANG))
 
     shortcode = allocate_shortcode()
     storage_key = save_bytes(shortcode, data, ext)

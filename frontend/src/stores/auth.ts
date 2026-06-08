@@ -1,12 +1,14 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { authTelegram, logout as apiLogout } from '../api'
+import { setLocale, type Language } from '../i18n'
 
 interface UserInfo {
   id: string
   telegram_id: number
   username: string
   display_name: string
+  language: Language
 }
 
 export const useAuthStore = defineStore('auth', () => {
@@ -18,6 +20,7 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.setItem('access_token', data.access_token)
     localStorage.setItem('refresh_token', data.refresh_token)
     user.value = data.user
+    if (data.user?.language) setLocale(data.user.language)
   }
 
   function logout() {

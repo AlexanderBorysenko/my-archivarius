@@ -53,7 +53,7 @@ async def telegram_auth(body: TelegramAuthRequest, response: Response):
 async def refresh_token(body: RefreshRequest, response: Response):
     payload = decode_token(body.refresh_token)
     if not payload or payload.get("type") != "refresh":
-        raise HTTPException(status_code=401, detail="Невалідний refresh token")
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
 
     user_id = payload["sub"]
     _set_media_cookie(response, user_id)

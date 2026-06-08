@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { marked } from 'marked'
+import { useI18n } from 'vue-i18n'
+import { setLocale, type Language } from '../i18n'
 import {
   getSettings,
   updateSettings,
@@ -10,6 +12,22 @@ import {
   updateCategory,
   deleteCategory,
 } from '../api'
+
+const { t, locale } = useI18n()
+const language = ref<Language>(locale.value as Language)
+
+async function saveLanguage() {
+  await updateSettings({ language: language.value })
+  setLocale(language.value)
+}
+
+const BUILTIN = ['idea', 'story', 'mood', 'insight']
+function catLabel(cat: { name: string; is_system: boolean }) {
+  return cat.is_system && BUILTIN.includes(cat.name) ? t(`categories.${cat.name}.label`) : cat.name
+}
+function catDesc(cat: { name: string; description: string; is_system: boolean }) {
+  return cat.is_system && BUILTIN.includes(cat.name) ? t(`categories.${cat.name}.description`) : cat.description
+}
 
 // --- Diary Style ---
 const stylePrompt = ref('')
@@ -30,6 +48,7 @@ async function loadSettings() {
     const { data } = await getSettings()
     stylePrompt.value = data.bake_style_prompt || ''
     defaultStylePrompt.value = data.default_style_prompt || ''
+    language.value = (data.language as Language) ?? language.value
   } catch {}
 }
 
@@ -61,7 +80,7 @@ async function testStyle() {
     const { data } = await previewStyle({ style_prompt: value })
     previewText.value = data.preview
   } catch {
-    previewError.value = 'Не вдалося згенерувати попередній перегляд'
+    previewError.value = t('settings.style.previewError')
   } finally {
     previewing.value = false
   }
@@ -152,7 +171,7 @@ async function saveNewCategory() {
 }
 
 async function removeCategory(name: string) {
-  if (!confirm('Видалити цю категорію?')) return
+  if (!confirm(t('settings.categories.deleteConfirm'))) return
   try {
     await deleteCategory(name)
     await loadCategories()
@@ -166,13 +185,27 @@ onMounted(async () => {
 
 <template>
   <div>
-    <h1 class="text-xl font-medium text-sand-800 mb-6">Налаштування</h1>
+    <h1 class="text-xl font-medium text-sand-800 mb-6">{{ t('settings.title') }}</h1>
+
+    <!-- Interface Language Section -->
+    <section class="bg-white rounded-xl border border-sand-200 p-4 sm:p-6 mb-6">
+      <label class="text-base font-medium text-sand-800 mb-2 block">{{ t('settings.language.label') }}</label>
+      <select
+        v-model="language"
+        @change="saveLanguage"
+        class="px-3 py-2 text-sm border border-sand-200 rounded-md focus:outline-none focus:ring-2 focus:ring-accent/30"
+      >
+        <option value="en">English</option>
+        <option value="uk">Українська</option>
+        <option value="ru">Русский</option>
+      </select>
+    </section>
 
     <!-- Diary Style Section -->
     <section class="bg-white rounded-xl border border-sand-200 p-4 sm:p-6 mb-6">
-      <h2 class="text-base font-medium text-sand-800 mb-2">Стиль щоденника</h2>
+      <h2 class="text-base font-medium text-sand-800 mb-2">{{ t('settings.style.header') }}</h2>
       <p class="text-sm text-sand-500 mb-4">
-        Опишіть, яким стилем AI має писати ваші записи. Якщо залишити порожнім — використовується стандартний літературний стиль.
+        {{ t('settings.style.desc') }}
       </p>
 
       <textarea
@@ -188,34 +221,34 @@ onMounted(async () => {
           :disabled="saving"
           class="px-4 py-2 text-sm bg-accent text-white rounded-md hover:bg-accent-hover disabled:opacity-40 transition-colors"
         >
-          {{ saving ? 'Зберігаю...' : 'Зберегти' }}
+          {{ saving ? t('settings.style.saving') : t('settings.style.save') }}
         </button>
         <button
           @click="resetStyle"
           :disabled="saving"
           class="px-4 py-2 text-sm text-sand-600 border border-sand-200 rounded-md hover:bg-sand-100 disabled:opacity-40 transition-colors"
         >
-          Скинути до стандартного
+          {{ t('settings.style.reset') }}
         </button>
         <button
           @click="testStyle"
           :disabled="previewing"
           class="px-4 py-2 text-sm text-sand-600 border border-sand-200 rounded-md hover:bg-sand-100 disabled:opacity-40 transition-colors"
         >
-          {{ previewing ? 'Генерую...' : 'Тестувати' }}
+          {{ previewing ? t('settings.style.generating') : t('settings.style.test') }}
         </button>
         <span
           v-if="saveSuccess"
           class="self-center text-sm text-green-600"
         >
-          Збережено
+          {{ t('settings.style.saved') }}
         </span>
       </div>
 
       <!-- Preview result -->
       <div v-if="previewing" class="text-center py-8">
         <div class="inline-block w-6 h-6 border-2 border-sand-300 border-t-accent rounded-full animate-spin"></div>
-        <p class="text-sm text-sand-400 mt-2">Генерую попередній перегляд...</p>
+        <p class="text-sm text-sand-400 mt-2">{{ t('settings.style.previewLoading') }}</p>
       </div>
 
       <div v-else-if="previewError" class="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -223,7 +256,7 @@ onMounted(async () => {
       </div>
 
       <div v-else-if="previewText" class="bg-sand-50 border border-sand-200 rounded-lg p-4">
-        <h3 class="text-sm font-medium text-sand-600 mb-2">Попередній перегляд</h3>
+        <h3 class="text-sm font-medium text-sand-600 mb-2">{{ t('settings.style.previewHeader') }}</h3>
         <div class="diary-content text-sm text-sand-800" v-html="renderedPreview"></div>
       </div>
     </section>
@@ -231,16 +264,16 @@ onMounted(async () => {
     <!-- Highlight Categories Section -->
     <section class="bg-white rounded-xl border border-sand-200 p-4 sm:p-6">
       <div class="flex items-center justify-between mb-4">
-        <h2 class="text-base font-medium text-sand-800">Категорії хайлайтів</h2>
+        <h2 class="text-base font-medium text-sand-800">{{ t('settings.categories.header') }}</h2>
         <button
           @click="openNewForm"
           class="px-3 py-1.5 rounded-md text-sm bg-accent text-white hover:bg-accent-hover transition-colors"
         >
-          + Нова категорія
+          {{ t('settings.categories.new') }}
         </button>
       </div>
       <p class="text-sm text-sand-500 mb-4">
-        Налаштуйте, які хайлайти витягувати з ваших записів. Промпт описує AI, що шукати.
+        {{ t('settings.categories.desc') }}
       </p>
 
       <!-- New category form -->
@@ -249,23 +282,23 @@ onMounted(async () => {
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <input
               v-model="newForm.name"
-              placeholder="Назва (англ., напр. health)"
+              :placeholder="t('settings.categories.namePlaceholder')"
               class="w-full px-3 py-2 text-sm border border-sand-200 rounded-md focus:outline-none focus:ring-2 focus:ring-accent/30"
             />
             <input
               v-model="newForm.icon"
-              placeholder="Іконка (емодзі, напр. 🏥)"
+              :placeholder="t('settings.categories.iconPlaceholder')"
               class="w-full px-3 py-2 text-sm border border-sand-200 rounded-md focus:outline-none focus:ring-2 focus:ring-accent/30"
             />
           </div>
           <input
             v-model="newForm.description"
-            placeholder="Опис категорії"
+            :placeholder="t('settings.categories.descPlaceholder')"
             class="w-full px-3 py-2 text-sm border border-sand-200 rounded-md focus:outline-none focus:ring-2 focus:ring-accent/30"
           />
           <textarea
             v-model="newForm.prompt"
-            placeholder="Промпт для AI — що шукати у записах (напр. спостереження про здоров'я, спорт, самопочуття, фізичні відчуття)"
+            :placeholder="t('settings.categories.promptPlaceholder')"
             rows="2"
             class="w-full px-3 py-2 text-sm border border-sand-200 rounded-md resize-y focus:outline-none focus:ring-2 focus:ring-accent/30"
           ></textarea>
@@ -275,13 +308,13 @@ onMounted(async () => {
               :disabled="savingCategory || !newForm.name || !newForm.description"
               class="px-4 py-2 text-sm bg-accent text-white rounded-md hover:bg-accent-hover disabled:opacity-40 transition-colors"
             >
-              Створити
+              {{ t('settings.categories.create') }}
             </button>
             <button
               @click="showNewForm = false"
               class="px-4 py-2 text-sm text-sand-600 border border-sand-200 rounded-md hover:bg-sand-100 transition-colors"
             >
-              Скасувати
+              {{ t('settings.categories.cancel') }}
             </button>
           </div>
         </div>
@@ -302,10 +335,10 @@ onMounted(async () => {
                 <span class="text-lg">{{ cat.icon }}</span>
                 <div>
                   <div class="flex items-center gap-2 flex-wrap">
-                    <span class="font-medium text-sm text-sand-800">{{ cat.name }}</span>
-                    <span v-if="cat.is_system" class="text-xs px-1.5 py-0.5 rounded bg-sand-100 text-sand-400">системна</span>
+                    <span class="font-medium text-sm text-sand-800">{{ catLabel(cat) }}</span>
+                    <span v-if="cat.is_system" class="text-xs px-1.5 py-0.5 rounded bg-sand-100 text-sand-400">{{ t('settings.categories.system') }}</span>
                   </div>
-                  <p class="text-xs text-sand-500 mt-0.5">{{ cat.description }}</p>
+                  <p class="text-xs text-sand-500 mt-0.5">{{ catDesc(cat) }}</p>
                 </div>
               </div>
               <div class="flex items-center gap-1 shrink-0">
@@ -313,7 +346,7 @@ onMounted(async () => {
                   @click="toggleCategory(cat)"
                   class="w-8 h-8 rounded-md text-sm flex items-center justify-center transition-colors"
                   :class="cat.enabled ? 'text-green-600 hover:bg-green-50' : 'text-sand-300 hover:bg-sand-100'"
-                  :title="cat.enabled ? 'Увімкнено' : 'Вимкнено'"
+                  :title="cat.enabled ? t('settings.categories.enabled') : t('settings.categories.disabled')"
                 >
                   {{ cat.enabled ? '✓' : '○' }}
                 </button>
@@ -333,7 +366,7 @@ onMounted(async () => {
               </div>
             </div>
             <p v-if="cat.prompt" class="text-xs text-sand-400 mt-2 pl-8 italic">
-              Промпт: {{ cat.prompt }}
+              {{ t('settings.categories.promptLabel') }} {{ cat.prompt }}
             </p>
           </div>
 
@@ -341,24 +374,24 @@ onMounted(async () => {
           <div v-else class="space-y-3">
             <div class="flex items-center gap-2">
               <span class="text-lg">{{ cat.icon }}</span>
-              <span class="font-medium text-sm text-sand-800">{{ cat.name }}</span>
-              <span v-if="cat.is_system" class="text-xs px-1.5 py-0.5 rounded bg-sand-100 text-sand-400">системна</span>
+              <span class="font-medium text-sm text-sand-800">{{ catLabel(cat) }}</span>
+              <span v-if="cat.is_system" class="text-xs px-1.5 py-0.5 rounded bg-sand-100 text-sand-400">{{ t('settings.categories.system') }}</span>
             </div>
             <div v-if="!cat.is_system" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <input
                 v-model="editForm.description"
-                placeholder="Опис"
+                :placeholder="t('settings.categories.descPlaceholderShort')"
                 class="w-full px-3 py-2 text-sm border border-sand-200 rounded-md focus:outline-none focus:ring-2 focus:ring-accent/30"
               />
               <input
                 v-model="editForm.icon"
-                placeholder="Іконка"
+                :placeholder="t('settings.categories.iconPlaceholderShort')"
                 class="w-full px-3 py-2 text-sm border border-sand-200 rounded-md focus:outline-none focus:ring-2 focus:ring-accent/30"
               />
             </div>
             <textarea
               v-model="editForm.prompt"
-              placeholder="Промпт для AI — що шукати у записах"
+              :placeholder="t('settings.categories.promptPlaceholderShort')"
               rows="2"
               class="w-full px-3 py-2 text-sm border border-sand-200 rounded-md resize-y focus:outline-none focus:ring-2 focus:ring-accent/30"
             ></textarea>
@@ -368,13 +401,13 @@ onMounted(async () => {
                 :disabled="savingCategory"
                 class="px-4 py-1.5 text-sm bg-accent text-white rounded-md hover:bg-accent-hover disabled:opacity-40 transition-colors"
               >
-                Зберегти
+                {{ t('settings.style.save') }}
               </button>
               <button
                 @click="cancelEdit"
                 class="px-4 py-1.5 text-sm text-sand-600 border border-sand-200 rounded-md hover:bg-sand-100 transition-colors"
               >
-                Скасувати
+                {{ t('settings.categories.cancel') }}
               </button>
             </div>
           </div>

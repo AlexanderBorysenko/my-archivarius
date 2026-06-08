@@ -12,6 +12,7 @@ from app.services.intake import register_inbound_event, inflight_inbound_count
 from app.core.events import event_bus
 from app.bot import media_bucket
 from app.models.media_file import MediaKind
+from app.core.i18n import t, map_telegram_lang
 
 
 def register_handlers(dp: Dispatcher):
@@ -36,19 +37,11 @@ async def cmd_start(message: types.Message):
             telegram_id=message.from_user.id,
             username=message.from_user.username,
             display_name=message.from_user.full_name,
+            language=map_telegram_lang(message.from_user.language_code),
         )
         await user.insert()
 
-    await message.answer(
-        f"Привіт, {user.display_name}! 👋\n\n"
-        "Я — твій AI-щоденник. Просто пиши або надсилай голосові "
-        "повідомлення протягом дня, а коли будеш готовий — "
-        "набери /bake щоб перетворити їх на запис у щоденнику.\n\n"
-        "Команди:\n"
-        "/bake — запікти повідомлення в запис\n"
-        "/web — відкрити веб-інтерфейс\n"
-        "/help — довідка"
-    )
+    await message.answer(t("welcome", user.language, name=user.display_name))
 
 
 async def cmd_bake(message: types.Message):
@@ -62,10 +55,7 @@ async def cmd_bake(message: types.Message):
     # Don't bake while messages are still being ingested/processed by the worker.
     processing_count = await inflight_inbound_count(user.id)
     if processing_count > 0:
-        await message.answer(
-            f"⏳ Є {processing_count} повідомлень в процесі обробки. "
-            "Зачекай завершення і спробуй знову."
-        )
+        await message.answer(t("bake_processing", user.language, count=processing_count))
         return
 
     pending_count = await RawMessage.find(
@@ -73,10 +63,10 @@ async def cmd_bake(message: types.Message):
     ).count()
 
     if pending_count == 0:
-        await message.answer("Буфер порожній — нічого запікати 🤷")
+        await message.answer(t("buffer_empty", user.language))
         return
 
-    await message.answer(f"🔥 Запікаю {pending_count} повідомлень...")
+    await message.answer(t("bake_start", user.language, count=pending_count))
 
     # Get all pending messages
     pending = await RawMessage.find(
@@ -94,33 +84,20 @@ async def cmd_bake(message: types.Message):
             ],
         })
         dates_str = ", ".join(e.date.strftime("%d.%m") for e in entries)
-        await message.answer(
-            f"✅ Готово! Створено {len(entries)} запис(ів) за дати: {dates_str}"
-        )
+        await message.answer(t("bake_done", user.language, count=len(entries), dates=dates_str))
     except Exception as exc:
         await event_bus.publish(user_id_str, "bake:error", {"detail": str(exc)[:300]})
-        await message.answer(f"❌ Помилка запікання: {str(exc)[:200]}")
+        await message.answer(t("bake_error", user.language, error=str(exc)[:200]))
 
 
 async def cmd_web(message: types.Message):
     """Send link to web interface."""
-    # TODO: generate auth link
-    await message.answer("🌐 Веб-інтерфейс: (посилання буде додано після деплою)")
+    await message.answer(t("web_link", await _lang(message)))
 
 
 async def cmd_help(message: types.Message):
     """Show help message."""
-    await message.answer(
-        "📖 Як користуватись:\n\n"
-        "Надсилай мені текстові або голосові повідомлення "
-        "протягом дня — я збережу їх у буфер.\n\n"
-        "Коли будеш готовий, набери /bake — і я перетворю "
-        "все на літературний запис у щоденнику.\n\n"
-        "Команди:\n"
-        "/bake — запікти повідомлення\n"
-        "/web — відкрити веб-інтерфейс\n"
-        "/help — ця довідка"
-    )
+    await message.answer(t("help", await _lang(message)))
 
 
 async def handle_voice(message: types.Message, inbound_update_id: int):
@@ -145,7 +122,7 @@ async def handle_voice(message: types.Message, inbound_update_id: int):
     if event is None:
         return  # Telegram redelivery.
 
-    await message.answer(f"🎙️ Отримано голосове ({voice.duration}с). Транскрибую...")
+    await message.answer(t("voice_received", user.language, duration=voice.duration))
     await event_bus.publish(str(user.id), "buffer:update")
 
     # The worker (single CAS-claimer) owns download + transcription — no second writer races us.
@@ -201,7 +178,7 @@ async def handle_unsupported(message: types.Message):
     user = await _get_user(message)
     if not user:
         return
-    await message.answer("Цей тип файлу поки не підтримується.")
+    await message.answer(t("unsupported", user.language))
 
 
 async def handle_skip(message: types.Message):
@@ -214,13 +191,13 @@ async def handle_skip(message: types.Message):
 async def _flush_and_ack(user, message: types.Message, descriptive: str):
     msg = await media_bucket.flush(user.id, descriptive, message.date or datetime.utcnow())
     if not msg:
-        await message.answer("Немає вкладень для опису.")
+        await message.answer(t("media_none", user.language))
         return
     n = len(msg.media_file_ids)
     if descriptive.strip():
-        await message.answer(f"📎 Опис додано до {n} вкладень.")
+        await message.answer(t("media_described", user.language, n=n))
     else:
-        await message.answer(f"📎 Збережено {n} вкладень без опису.")
+        await message.answer(t("media_saved", user.language, n=n))
 
 
 async def handle_text(message: types.Message, inbound_update_id: int):
@@ -255,7 +232,7 @@ async def handle_text(message: types.Message, inbound_update_id: int):
         return  # Telegram redelivery.
 
     await event_bus.publish(str(user.id), "buffer:update")
-    await message.answer("✅ Записано!")
+    await message.answer(t("text_saved", user.language))
 
     # The worker classifies + persists the note (sub-second); same UX as voice.
     from app.services.worker import enqueue_hot
@@ -266,6 +243,14 @@ async def _get_user(message: types.Message) -> User | None:
     """Get or prompt user to register."""
     user = await User.find_one({"telegram_id": message.from_user.id})
     if not user:
-        await message.answer("Спершу набери /start для реєстрації.")
+        await message.answer(t("register_first", map_telegram_lang(message.from_user.language_code)))
         return None
     return user
+
+
+async def _lang(message: types.Message) -> str:
+    """Resolve interface language for handlers that may not have a registered user."""
+    user = await User.find_one({"telegram_id": message.from_user.id})
+    if user:
+        return user.language
+    return map_telegram_lang(message.from_user.language_code)
