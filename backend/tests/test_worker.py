@@ -131,6 +131,35 @@ class TestVoiceRecoveryDownload:
 
 
 @pytest.mark.asyncio
+class TestMediaNoOp:
+    async def test_media_event_finalized_without_processing(self, test_user):
+        # Media is ingested out-of-band by media_bucket (creates the MEDIA RawMessage and
+        # acks the user). The inbound event is a dedup gate only — the worker must finalize
+        # it as DONE without running a pipeline, creating a RawMessage, or notifying.
+        event = InboundEvent(
+            event_id="evt-media-1",
+            external_id="5001",
+            user_id=test_user.id,
+            kind=InboundKind.MEDIA,
+            initiator=Initiator(channel="telegram", chat_id=1, message_id=7),
+            payload={"media": {"message_id": 7}},
+            status=InboundStatus.PENDING,
+        )
+        await event.insert()
+        claimed = await worker.claim_one("o")
+        assert claimed is not None
+
+        with patch.object(worker, "notify_outcome", AsyncMock()) as notify:
+            await worker.process_event(claimed)
+
+        refreshed = await InboundEvent.get(event.id)
+        assert refreshed.status == InboundStatus.DONE
+        assert refreshed.attempts == 0  # never failed/retried
+        assert await RawMessage.find({"event_id": "evt-media-1"}).count() == 0
+        notify.assert_not_awaited()  # media_bucket already acked the user
+
+
+@pytest.mark.asyncio
 class TestTextPipeline:
     async def test_text_creates_raw_message(self, test_user):
         event = InboundEvent(

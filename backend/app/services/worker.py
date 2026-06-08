@@ -23,10 +23,11 @@ logger = logging.getLogger(__name__)
 # Hot-handoff queue: adapters push an event_id; the loop picks it up without poll latency.
 _hot_queue: "asyncio.Queue[str]" = asyncio.Queue()
 
+# MEDIA is intentionally absent: media RawMessages are built by media_bucket, not the
+# worker (see the MEDIA no-op in process_event).
 _KIND_SOURCE = {
     InboundKind.VOICE: SourceType.VOICE,
     InboundKind.TEXT: SourceType.TEXT,
-    InboundKind.MEDIA: SourceType.MEDIA,
 }
 
 
@@ -104,6 +105,19 @@ async def _run_pipeline(event: InboundEvent) -> str:
 
 async def process_event(event: InboundEvent) -> None:
     """Run one claimed job: pipeline -> RawMessage (idempotent) -> notify; retry on failure."""
+    if event.kind == InboundKind.MEDIA:
+        # Media is ingested out-of-band by media_bucket: it creates the MEDIA RawMessage
+        # and acks the user directly. The inbound event exists only as an intake-dedup
+        # gate, so the worker finalizes it as a no-op — no pipeline, no RawMessage, no
+        # notification (that would double-notify). It only ever reaches the worker via the
+        # poll backstop, since the media handler never calls enqueue_hot.
+        event.status = InboundStatus.DONE
+        event.stage = None
+        event.updated_at = datetime.utcnow()
+        await event.save()
+        await event_bus.publish(str(event.user_id), "buffer:update")
+        logger.info("Inbound event %s finalized as media no-op (out-of-band ingest)", event.id)
+        return
     try:
         content = await _run_pipeline(event)
 
