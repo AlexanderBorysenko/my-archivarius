@@ -11,6 +11,8 @@ const sp = useStoryPoints()
 
 const points = ref<StoryPoint[]>([])
 const newTitle = ref('')
+const creating = ref(false)
+const busyIds = ref<Set<string>>(new Set())
 
 async function load() {
   try {
@@ -22,7 +24,8 @@ async function load() {
 
 async function add() {
   const title = newTitle.value.trim()
-  if (!title) return
+  if (!title || creating.value) return // guard double-submit
+  creating.value = true
   try {
     await sp.addPoint(props.entryId, title)
     newTitle.value = ''
@@ -30,6 +33,8 @@ async function add() {
     emit('changed')
   } catch {
     await load()
+  } finally {
+    creating.value = false
   }
 }
 
@@ -49,12 +54,18 @@ async function rename(p: StoryPoint) {
 }
 
 async function remove(p: StoryPoint) {
+  if (busyIds.value.has(p.id)) return // guard double-delete
+  busyIds.value = new Set(busyIds.value).add(p.id)
   try {
     await sp.removePoint(p.id)
     await load()
     emit('changed')
   } catch {
     await load()
+  } finally {
+    const next = new Set(busyIds.value)
+    next.delete(p.id)
+    busyIds.value = next
   }
 }
 
@@ -91,7 +102,18 @@ watch(() => props.entryId, load)
             @keyup.enter="($event.target as HTMLInputElement).blur()"
             class="flex-1 border border-sand-200 rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30"
           />
-          <button class="text-sand-300 hover:text-red-400 text-sm" @click="remove(element)" aria-label="delete">✕</button>
+          <button
+            class="text-sand-300 hover:text-red-400 text-sm disabled:cursor-not-allowed w-4 text-center"
+            :disabled="busyIds.has(element.id)"
+            @click="remove(element)"
+            aria-label="delete"
+          >
+            <span
+              v-if="busyIds.has(element.id)"
+              class="inline-block w-3 h-3 border-2 border-sand-300 border-t-red-400 rounded-full animate-spin align-middle"
+            ></span>
+            <span v-else>✕</span>
+          </button>
         </div>
       </template>
     </draggable>
@@ -100,11 +122,20 @@ watch(() => props.entryId, load)
       <input
         v-model="newTitle"
         @keyup.enter="add"
+        :disabled="creating"
         :placeholder="t('storyPoints.placeholder')"
-        class="flex-1 border border-sand-200 rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30"
+        class="flex-1 border border-sand-200 rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
       />
-      <button class="px-3 py-1 text-sm bg-accent text-white rounded-md hover:bg-accent-hover" @click="add">
-        {{ t('storyPoints.addPoint') }}
+      <button
+        class="px-3 py-1 text-sm bg-accent text-white rounded-md hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center min-w-14"
+        :disabled="creating || !newTitle.trim()"
+        @click="add"
+      >
+        <span
+          v-if="creating"
+          class="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin"
+        ></span>
+        <span v-else>{{ t('storyPoints.addPoint') }}</span>
       </button>
     </div>
 
